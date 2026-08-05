@@ -6,11 +6,11 @@ window.PL = window.PL || {};
 
 /* ---------- ステータス定義 ---------- */
 PL.STATS = {
-  belly:  { name:'膨満度',   icon:'🎈', color:'belly',  desc:'お腹の張り具合' },
-  weight: { name:'むちむち度', icon:'🍰', color:'weight', desc:'全身のふくよかさ' },
-  gas:    { name:'ガス圧',   icon:'💨', color:'gas',    desc:'溜まったガスの量' },
-  soft:   { name:'もちもち度', icon:'🍡', color:'soft',   desc:'肌と脂肪の柔らかさ' },
-  mood:   { name:'ごきげん',  icon:'💗', color:'mood',   desc:'高いほど協力的' }
+  belly:  { name:'膨満度',   icon:'◍', color:'belly',  desc:'お腹の張り具合' },
+  weight: { name:'むちむち度', icon:'❖', color:'weight', desc:'全身のふくよかさ' },
+  gas:    { name:'ガス圧',   icon:'≋', color:'gas',    desc:'溜まったガスの量' },
+  soft:   { name:'もちもち度', icon:'✿', color:'soft',   desc:'肌と脂肪の柔らかさ' },
+  mood:   { name:'ごきげん',  icon:'❦', color:'mood',   desc:'高いほど協力的' }
 };
 PL.FX_KEYS = ['belly','weight','gas','soft'];
 

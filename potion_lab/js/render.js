@@ -262,6 +262,12 @@ class CharRenderer {
     P.sleeveR = add('path', { d:'', fill:'url(#gCloth)' });
     P.sleeveShL = add('path', { d:'', fill:'rgba(0,0,0,.16)', filter:'url(#b3)' });
     P.sleeveShR = add('path', { d:'', fill:'rgba(0,0,0,.16)', filter:'url(#b3)' });
+    P.handL = add('path', { d:'', fill:'url(#gLimb)' });
+    P.handR = add('path', { d:'', fill:'url(#gLimb)' });
+    P.handShL = add('path', { d:'', fill:'rgba(120,66,50,.26)', filter:'url(#b3)' });
+    P.handShR = add('path', { d:'', fill:'rgba(120,66,50,.26)', filter:'url(#b3)' });
+    P.fingerL = add('path', { d:'', fill:'none', stroke:'rgba(120,66,50,.34)', 'stroke-width':.9, 'stroke-linecap':'round' });
+    P.fingerR = add('path', { d:'', fill:'none', stroke:'rgba(120,66,50,.34)', 'stroke-width':.9, 'stroke-linecap':'round' });
 
     P.hairSide = add('path', { d:'', fill:'url(#gHair)' });
 
@@ -540,9 +546,10 @@ class CharRenderer {
     /* --- 素の体型（半幅） --- */
     const fl = (i) => this.flesh.off[i % this.flesh.n] * (0.28 + soft/100*0.75);
     const prof = [
-      { y:SK.neckBase,  w:11.5 + wt*2 },
-      { y:SK.shoulder,  w:38.0 + wt*7  + fl(0) },
-      { y:SK.deltoid,   w:39.0 + wt*8  + fl(1) },
+      { y:92,           w:11.5 + wt*2 },            // 首の付け根
+      { y:101,          w:18.5 + wt*4 },            // 僧帽筋
+      { y:SK.shoulder,  w:29.5 + wt*6  + fl(0) },   // 肩へ向かう傾斜
+      { y:SK.deltoid,   w:38.5 + wt*8  + fl(1) },   // 肩峰・三角筋
       { y:SK.bust,      w:35.0 + wt*12 + fl(2) },
       { y:SK.underBust, w:30.0 + wt*17 + fl(3) },
       { y:SK.waist,     w:25.5 + wt*24 + fl(4) },
@@ -577,7 +584,7 @@ class CharRenderer {
 
     /* --- 輪郭 --- */
     const rp = [], lp = [];
-    for (let y=SK.neckBase; y<=SK.torsoEnd+0.01; y+=4){
+    for (let y=92; y<=SK.torsoEnd+0.01; y+=4){
       rp.push({ x: cx + halfW(y,true),  y });
       lp.push({ x: cx - halfW(y,false), y });
     }
@@ -637,33 +644,57 @@ class CharRenderer {
       P['legHi'+tag].setAttribute('d', this._tube(pts.map(p => ({ x:p.x + s*p.w*0.10, y:p.y, w:p.w*0.22 }))));
       const fx = cx + s*ankDX;
       P['shoe'+tag].setAttribute('d',
-        `M${fx-6.5},${SK.ankle-3} q6.5,-3 12,1 L${fx+6},${SK.sole-4} q0,4 -4.5,4 h-13 q-4,0 -4,-4 Z`);
+        `M${fx-5.5},${SK.ankle-6} q5.5,-3 11,0 `+
+        `L${fx+6.5},${SK.sole-7} q1.5,3 1,7 q0,3 -4,3 h-13.5 q-3.5,0 -3.5,-3.5 `+
+        `q0,-4 1.5,-7 Z`);
     });
 
     /* --- 腕 --- */
-    const armTop = 17 + wt*13, armMid = 13.5 + wt*10, armEnd = 9 + wt*5;
+    const armTop = 17 + wt*13, armMid = 13 + wt*9, armEnd = 8.5 + wt*4.5;
     const elbowY = SK.waist, wristY = SK.crotch;
     const shoulderHalf = profAt(SK.deltoid);
-    const armPts = {};
+    const armPts = {}, armEdge = {};
     [[-1,'L'],[1,'R']].forEach(([s,tag]) => {
       const right = s>0;
-      const swing = Math.sin(this.t*1.35 + (right?0.6:0))*1.3;
-      const natural = profAt(SK.bust)*0.97;
+      const swing = Math.sin(this.t*1.35 + (right?0.6:0))*1.2;
+      // 上着の外縁を腕より内側に収めるため、腕の位置を控えておく
+      // お腹がせり出した分だけ外へ逃がす
+      const natural = profAt(SK.bust)*0.92;
       let bx = 0;
-      for (let y=160; y<=245; y+=5) bx = Math.max(bx, halfW(y,right));
-      const out = clamp(bx*0.64, natural, natural+30);
+      for (let y=165; y<=248; y+=5) bx = Math.max(bx, halfW(y,right));
+      const out  = clamp(bx*0.62, natural, natural+28);
+      const shX  = shoulderHalf*0.62;          // 肩関節（体の内側）
+      const delX = shoulderHalf*0.90;          // 三角筋がいちばん外
+      const elX  = out + armMid*0.26;          // 肘
+      const wrX  = elX - armEnd*0.30;          // 手首はわずかに内側へ戻る
       armPts[tag] = [
-        { x: cx + s*(shoulderHalf - armTop*0.42),                    y: SK.shoulder+4,  w: armTop },
-        { x: cx + s*Math.max(halfW(152,right)+armMid*0.55, out*0.9), y: 152,            w: armMid*1.18 },
-        { x: cx + s*(out + armMid*0.42),  y: elbowY+swing,    w: armMid },
-        { x: cx + s*(out + armEnd*0.55),  y: wristY+swing,    w: armEnd },
-        { x: cx + s*(out + armEnd*0.75),  y: wristY+20+swing, w: armEnd*0.92 }
+        { x: cx + s*shX,                  y: SK.shoulder-1,        w: armTop*0.80 },
+        { x: cx + s*delX,                 y: SK.shoulder+13,       w: armTop },
+        { x: cx + s*(delX*0.42+elX*0.58), y: (SK.shoulder+elbowY)/2, w: armTop*0.78 },
+        { x: cx + s*elX,                  y: elbowY+swing,         w: armMid },
+        { x: cx + s*(elX*0.45+wrX*0.55),  y: (elbowY+wristY)/2+swing, w: armMid*0.74 },
+        { x: cx + s*wrX,                  y: wristY+swing,         w: armEnd }
       ];
       P['arm'+tag].setAttribute('d', this._tube(armPts[tag]));
       P['armSh'+tag].setAttribute('d', this._tube(armPts[tag].map(p => ({ x:p.x - s*p.w*0.38, y:p.y, w:p.w*0.40 }))));
       // 体に落ちる影（腕と胴が同じ肌色で溶けないように）
       P['armCast'+tag].setAttribute('d', this._tube(
         armPts[tag].map(p => ({ x:p.x - s*3.5, y:p.y+3, w:p.w*1.05 }))));
+
+      // 手（手のひらは手首より広く、指先へ細くなる）
+      const hx = cx + s*wrX, hy0 = wristY+swing;
+      const hand = [
+        { x: hx,          y: hy0,      w: armEnd*0.94 },
+        { x: hx + s*0.8,  y: hy0+9,    w: armEnd*1.16 },
+        { x: hx + s*0.4,  y: hy0+19,   w: armEnd*1.02 },
+        { x: hx - s*1.2,  y: hy0+30,   w: armEnd*0.52 }
+      ];
+      P['hand'+tag].setAttribute('d', this._tube(hand));
+      P['handSh'+tag].setAttribute('d', this._tube(hand.map(p => ({ x:p.x - s*p.w*0.34, y:p.y, w:p.w*0.40 }))));
+      P['finger'+tag].setAttribute('d',
+        `M${hx-s*armEnd*0.18},${hy0+16} L${hx-s*armEnd*0.34},${hy0+27} `+
+        `M${hx+s*armEnd*0.18},${hy0+16} L${hx+s*armEnd*0.16},${hy0+28}`);
+      armEdge[tag] = delX + armTop*0.5;
     });
 
     /* ===================== 服 ===================== */
@@ -703,12 +734,12 @@ class CharRenderer {
     }
     P.topFold.setAttribute('d', tf);
 
-    const sleeveCut = { 0:0, 1:2, 2:5 }[OF.sleeve] || 0;
+    const sleeveCut = { 0:0, 1:3, 2:6 }[OF.sleeve] || 0;
     ['L','R'].forEach(tag => {
       const s = tag==='L' ? -1 : 1;
       if (!sleeveCut){ P['sleeve'+tag].setAttribute('opacity',0); P['sleeveSh'+tag].setAttribute('opacity',0); return; }
       P['sleeve'+tag].setAttribute('opacity',1); P['sleeveSh'+tag].setAttribute('opacity',1);
-      const sp = armPts[tag].slice(0, sleeveCut).map((p,i) => ({ x:p.x, y:p.y, w:p.w*(1.18 - i*0.02) }));
+      const sp = armPts[tag].slice(0, sleeveCut).map((p,i) => ({ x:p.x, y:p.y+(i?0:3), w:p.w*(1.07 - i*0.012) }));
       P['sleeve'+tag].setAttribute('d', this._tube(sp));
       P['sleeveSh'+tag].setAttribute('d', this._tube(sp.map(p => ({ x:p.x - s*p.w*0.34, y:p.y, w:p.w*0.36 }))));
     });
@@ -756,8 +787,9 @@ class CharRenderer {
       const n = OF.bottom==='pleated' ? 3 : 2;
       for (let i=-n;i<=n;i++){
         if (!i && OF.bottom!=='pleated') continue;
-        const xt = cx + i*hipW*0.36, xb = cx + i*F*0.42;
-        folds += `M${xt},${beltAt(xt)+10} L${xb},${L-5} `;
+        const u = i/n;                                   // -1〜1 に正規化して裾からはみ出さないように
+        const xt = cx + u*hipW*0.78, xb = cx + u*F*0.84;
+        folds += `M${xt},${beltAt(xt)+10} L${xb},${L-6} `;
       }
     }
     P.skirt.setAttribute('d', smoothClosedPath(bottomPts));
@@ -791,10 +823,11 @@ class CharRenderer {
       let d = '';
       for (const sd of [-1,1]){
         const outer = [], inner = [];
+        const lim = armEdge[sd>0 ? 'R' : 'L'];
         for (let y=SK.shoulder-1; y<=bot+0.01; y+=5){
           const hv = halfW(Math.min(y, SK.torsoEnd), sd>0);
-          outer.push({ x: cx + sd*hv*1.05,       y });
-          inner.push({ x: cx + sd*(hv*0.36 + 4), y });
+          outer.push({ x: cx + sd*Math.min(hv*1.04, lim), y });   // 腕より外へ出さない
+          inner.push({ x: cx + sd*(hv*0.36 + 4),          y });
         }
         d += smoothClosedPath(outer.concat(inner.reverse()));
       }
@@ -1176,22 +1209,61 @@ PL.Sfx = {
     g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+0.45);
     o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime+0.46);
   },
+  /* オナラ：弁のはためき（不規則なパルス列）＋息の抜ける雑音を、
+     体腔の共鳴に見立てたフィルタに通して合成する。毎回わずかに音色が変わる */
   fart(power=1){
     const ac = this.on && this._ac(); if (!ac) return;
-    const dur = 0.35+power*0.45;
-    const buf = ac.createBuffer(1, Math.ceil(ac.sampleRate*dur), ac.sampleRate);
-    const d = buf.getChannelData(0);
-    let phase = 0;
-    for (let i=0;i<d.length;i++){
-      const t = i/d.length;
-      const f = (54 + Math.sin(t*26)*22) * (1 - t*0.35);
-      phase += f/ac.sampleRate;
-      d[i] = ((phase%1)*2-1) * (1-t) * (0.55 + Math.random()*0.45);
+    const sr = ac.sampleRate;
+    const wet   = Math.random() < 0.34;                       // 湿った音 / 乾いた音
+    const dur   = (wet ? 0.30 : 0.42) + power*(0.45+Math.random()*0.45);
+    const n     = Math.ceil(sr*dur);
+    const buf   = ac.createBuffer(1, n, sr);
+    const d     = buf.getChannelData(0);
+
+    const f0    = (wet ? 56 : 76) + Math.random()*34;         // 基音
+    const flut  = 19 + Math.random()*26;                      // はためきの速さ
+    const drop  = 0.28 + Math.random()*0.30;                  // 終わりに向かって下がる量
+    let phase = 0, jit = 0, lp = 0;
+
+    for (let i=0;i<n;i++){
+      const t = i/n;
+      // 基音をランダムウォークで揺らしつつ下降させる（機械的な滑らかさを消す）
+      jit += (Math.random()-0.5)*3.4;
+      jit *= 0.90;
+      const f = clamp((f0 + jit) * (1 - t*drop), 30, 240);
+      phase += f/sr;
+
+      // デューティ比の揺れるパルス列＝ブーッという豊かな倍音
+      const duty = 0.20 + 0.15*Math.sin(t*29 + phase*0.6);
+      let v = ((phase % 1) < duty) ? 1 : -1;
+
+      // 弁のはためきによる細かい振幅変動
+      v *= 0.52 + 0.48*Math.sin(TAU*flut*t*dur + Math.sin(t*8.5)*2.2);
+
+      // 空気の抜ける雑音（湿り気があるほど多い）
+      const noise = (Math.random()*2-1);
+      lp += (noise - lp)*0.35;                                // ざらつきを少し丸める
+      v = v*0.80 + lp*(wet ? 0.30 : 0.17);
+
+      // 立ち上がり／減衰／ときどき途切れる
+      const atk = Math.min(1, t/0.03);
+      const rel = Math.pow(1-t, 1.35);
+      const sputter = (t > 0.22 && Math.sin(t*43+f0) > 0.90) ? 0.22 : 1;
+      d[i] = v * atk * rel * sputter;
     }
+
     const src = ac.createBufferSource(); src.buffer = buf;
-    const flt = ac.createBiquadFilter(); flt.type='lowpass'; flt.frequency.value = 580;
-    const g = ac.createGain(); g.gain.value = 0.10+power*0.10;
-    src.connect(flt).connect(g).connect(ac.destination); src.start();
+    // 体腔の響き：低音を持ち上げ、ブザー帯を強調し、耳障りな高域を落とす
+    const low = ac.createBiquadFilter();
+    low.type='lowshelf'; low.frequency.value = 130; low.gain.value = 5;
+    const mid = ac.createBiquadFilter();
+    mid.type='peaking'; mid.frequency.value = wet ? 240 : 330; mid.Q.value = 1.4; mid.gain.value = 8;
+    const hi = ac.createBiquadFilter();
+    hi.type='lowpass'; hi.frequency.value = wet ? 1100 : 1700; hi.Q.value = 0.7;
+    const g = ac.createGain(); g.gain.value = 0.15 + power*0.11;
+
+    src.connect(low).connect(mid).connect(hi).connect(g).connect(ac.destination);
+    src.start();
   },
   ok(){
     const ac = this.on && this._ac(); if (!ac) return;

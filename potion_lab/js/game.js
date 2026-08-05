@@ -171,7 +171,7 @@ function gather(locId){
     got[id] = (got[id]||0)+1;
   }
   const txt = Object.keys(got).map(id => `${PL.MATERIALS[id].icon}${PL.MATERIALS[id].name}×${got[id]}`).join('、');
-  log(`🌿 <b>${PL.LOCATIONS[locId].name}</b> で採取： ${txt}`, 'good');
+  log(`❧ <b>${PL.LOCATIONS[locId].name}</b> にて採取： ${txt}`, 'good');
   PL.Sfx.ok();
   checkQuests(); renderAll(); save();
 }
@@ -197,10 +197,10 @@ function craft(){
   const key = recipeKey(mats, S.craft.base);
   if (!S.recipes[key]){
     S.recipes[key] = { name:p.name, rank:p.rank, mats:mats.slice(), base:S.craft.base, day:S.day };
-    log(`📖 <b>新レシピ発見！</b> 「${p.name}」`, 'big');
-    popup('NEW RECIPE!', 'soft');
+    log(`✦ <b>新たな秘伝を書き留めた</b>　「${p.name}」`, 'big');
+    popup('新たな秘伝', 'soft');
   }
-  log(`⚗️ <b>${p.name}</b>（${p.rank}）を調合しました。`, 'good');
+  log(`◆ <b>${p.name}</b>（${p.rank}）を調合した。`, 'good');
   PL.Sfx.ok();
   S.craft.slots = [null,null,null];
   checkQuests(); renderAll(); save();
@@ -230,7 +230,7 @@ function drink(potionId){
   renderer.squash = 1;
   PL.Sfx.gulp();
   say(pick(def.lines.drink), 2200);
-  log(`🍶 <b>${def.name}</b> が「${p.name}」を飲みました。`, 'big');
+  log(`❖ <b>${def.name}</b> が「${p.name}」を飲み干した。`, 'big');
 
   const steps = p.fast ? 8 : 14;
   const iv = p.fast ? 240 : 340;
@@ -287,7 +287,7 @@ function finishDrink(cid, p, before){
   });
   c.notes.unshift({ day:S.day, potion:p.name, rank:p.rank, diff:diffs.join(' / ') || '変化なし' });
   c.notes = c.notes.slice(0,8);
-  log(`📝 観察記録： ${diffs.join(' / ') || '目立った変化なし'}`, 'good');
+  log(`✎ 観察記録： ${diffs.join(' / ') || '目立った変化なし'}`, 'good');
 
   // 締めのセリフ
   let dom = null, best = 0;
@@ -358,7 +358,7 @@ function sleep(){
     c.mood   = clamp(c.mood + (70 - c.mood)*0.4, 0, 100);
     if (c.hold > 0) c.hold--;
   });
-  log(`🌙 <b>${S.day} 日目</b> の朝。行動力が回復しました。`, 'warn');
+  log(`☾ <b>第 ${S.day} 日</b> の朝。行動力が満ちた。`, 'warn');
   PL.Sfx.ok();
   checkQuests(); renderAll(); save();
 }
@@ -370,8 +370,8 @@ function checkQuests(){
     if (q.check(S)){
       S.quests[q.id] = true;
       q.grant(S);
-      log(`🏆 <b>${q.name}</b> 達成！ → ${q.rewardText}`, 'big');
-      popup('UNLOCK!', 'soft');
+      log(`✧ <b>${q.name}</b> 成就 — ${q.rewardText}`, 'big');
+      popup('解放', 'soft');
       PL.Sfx.ok();
     }
   });
@@ -396,7 +396,7 @@ function renderHud(){
   $('hudApMax').textContent = S.apMax;
   $('hudRecipes').textContent = Object.keys(S.recipes).length;
   $('hudPotions').textContent = S.potions.length;
-  $('btnSound').textContent = S.sound ? '🔊' : '🔇';
+  $('btnSound').textContent = S.sound ? '♪ 入' : '♪ 切';
 }
 
 function renderCharTabs(){
@@ -708,7 +708,7 @@ function boot(){
   }, 7000);
 
   renderAll();
-  log('🧪 <b>もちもち調合工房</b> へようこそ。まずは <b>採取</b> から始めましょう。','big');
+  log('⚗ <b>もちもち調合工房</b> へようこそ。まずは <b>採取</b> から。','big');
   say(pick(charDef(S.sel).lines.greet), 3200);
 }
 
