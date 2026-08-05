@@ -90,7 +90,7 @@ PL.CHARACTERS = [
 {
   id:'rizetta', name:'リゼッタ', title:'お姉さん', age:24,
   profile:'工房の常連にして先輩薬師。何を飲んでも余裕たっぷりに微笑む、頼れるお姉さん。',
-  palette:{ hair:'#8f6fc9', hair2:'#6d4fa5', cloth:'#e6d9f7', cloth2:'#7a5cb5', eye:'#a97bff', skin:'#ffe0d0', blush:'#ff9fc0' },
+  palette:{ hair:'#4e3324', hair2:'#2e1d13', cloth:'#e9e0d2', cloth2:'#3d4863', eye:'#6b4a2f', skin:'#eec5a6', blush:'#c9756a' },
   hairStyle:'longwave', accessory:null,
   outfit:{ top:'blouse', sleeve:2, bottom:'longskirt', over:null },   // 長袖ブラウス＋ロングスカート
   start:{ belly:0, weight:14, gas:0, soft:38, mood:70 },
@@ -131,7 +131,7 @@ PL.CHARACTERS = [
 {
   id:'mint', name:'ミント', title:'元気っ子', age:20,
   profile:'駆け出しの冒険者。好奇心で何でも一気飲みする。代謝がよく効果が抜けるのも早い。',
-  palette:{ hair:'#f79a4b', hair2:'#d9702e', cloth:'#ffe0b0', cloth2:'#e2703a', eye:'#ffb347', skin:'#ffe3d2', blush:'#ff8fa8' },
+  palette:{ hair:'#a86736', hair2:'#7c4820', cloth:'#d96a55', cloth2:'#4a6787', eye:'#8a6b3a', skin:'#f5d8bd', blush:'#d4776c' },
   hairStyle:'ponytail', accessory:null,
   outfit:{ top:'tank',   sleeve:0, bottom:'shorts',    over:null },   // タンクトップ＋ショートパンツ
   start:{ belly:0, weight:6, gas:0, soft:26, mood:88 },
@@ -172,7 +172,7 @@ PL.CHARACTERS = [
 {
   id:'shannon', name:'シャノン', title:'クール研究者', age:26,
   profile:'王立研究院からの視察官。どんな変化も冷静に記録するが、内心はしっかり動揺している。',
-  palette:{ hair:'#6fa9dd', hair2:'#4b81b5', cloth:'#dbeafe', cloth2:'#3f6fa5', eye:'#7fd4ff', skin:'#ffe4d8', blush:'#ff9db8' },
+  palette:{ hair:'#8b7d6c', hair2:'#5c5145', cloth:'#c9d6e3', cloth2:'#3b3e46', eye:'#6f8496', skin:'#f4dccd', blush:'#c98077' },
   hairStyle:'straight', accessory:'glasses',
   outfit:{ top:'shirt',  sleeve:2, bottom:'pencil',    over:'coat' }, // シャツ＋タイトスカート＋白衣
   start:{ belly:0, weight:10, gas:0, soft:22, mood:52 },
@@ -213,7 +213,7 @@ PL.CHARACTERS = [
 {
   id:'puti', name:'プティ', title:'おっとり大食い', age:22,
   profile:'向かいのパン屋の看板娘。もともとふっくら体型で、膨らむことをまるで気にしない。',
-  palette:{ hair:'#f48fb1', hair2:'#d2678d', cloth:'#ffe6ee', cloth2:'#e9829f', eye:'#ff9ec4', skin:'#ffe2d4', blush:'#ff8fb3' },
+  palette:{ hair:'#3a2a1e', hair2:'#21160f', cloth:'#e0aba1', cloth2:'#7f5b42', eye:'#4a3324', skin:'#ae7147', blush:'#8f4a3c' },
   hairStyle:'braids', accessory:'apron',
   outfit:{ top:'blouse', sleeve:1, bottom:'skirt',     over:'apron' },// ブラウス＋エプロン
   start:{ belly:8, weight:44, gas:4, soft:58, mood:80 },
@@ -254,7 +254,7 @@ PL.CHARACTERS = [
 {
   id:'noel', name:'ノエル', title:'内気な司書', age:21,
   profile:'町の図書館の司書。押しに弱く断れない性格。反応が大きいので観察のしがいがある。',
-  palette:{ hair:'#7fc9a4', hair2:'#579a79', cloth:'#dff3e7', cloth2:'#5b9c7c', eye:'#8fe0b8', skin:'#ffe5d9', blush:'#ff96b4' },
+  palette:{ hair:'#2a2430', hair2:'#16131c', cloth:'#a3b596', cloth2:'#66734e', eye:'#3b3040', skin:'#d8a67b', blush:'#a86152' },
   hairStyle:'bob', accessory:null,
   outfit:{ top:'shirt',  sleeve:1, bottom:'pleated',   over:'cardigan' }, // カーディガン＋プリーツ
   start:{ belly:0, weight:8, gas:0, soft:30, mood:44 },
@@ -295,7 +295,7 @@ PL.CHARACTERS = [
 {
   id:'vivi', name:'ドクトル・ヴィヴィ', title:'狂気の錬金術師', age:27,
   profile:'噂を聞きつけて現れた自称・天才。自分の体で実験することに一切の躊躇がない。',
-  palette:{ hair:'#eae7f5', hair2:'#c3bddb', cloth:'#b9b1dd', cloth2:'#6f649c', eye:'#ff6b8a', skin:'#ffe0d6', blush:'#ff8fa6' },
+  palette:{ hair:'#cfc9c0', hair2:'#9b948a', cloth:'#949aa6', cloth2:'#373a44', eye:'#7a8a78', skin:'#f0d3c2', blush:'#c47f74' },
   hairStyle:'messy', accessory:'coat',
   outfit:{ top:'cami',   sleeve:0, bottom:'shorts',    over:'coat' }, // キャミ＋白衣
   start:{ belly:0, weight:12, gas:0, soft:34, mood:100 },

@@ -87,8 +87,9 @@ section{background:linear-gradient(180deg,var(--panel),var(--bg2));
 #viewport{
   position:relative;border-radius:12px;overflow:hidden;
   background:
-    radial-gradient(60% 45% at 50% 92%, rgba(255,150,200,.16), transparent 70%),
-    linear-gradient(180deg,#3b2d55 0%, #2a2140 60%, #241c33 100%);
+    radial-gradient(58% 42% at 44% 26%, rgba(255,246,232,.20), transparent 68%),
+    radial-gradient(70% 40% at 50% 96%, rgba(0,0,0,.34), transparent 72%),
+    linear-gradient(180deg,#4b4550 0%, #3a353f 58%, #2b272f 100%);
   border:1px solid var(--line);
 }
 #viewport.shake{animation:shake .32s ease}

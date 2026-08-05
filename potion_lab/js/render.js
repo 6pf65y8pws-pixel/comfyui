@@ -1,9 +1,10 @@
 /* =========================================================
    もちもち調合工房 — キャラクター描画 + ソフトボディ物理
-   ・約7頭身のセミリアル体型（顔立ちはアニメ調）
-   ・胴体シルエットと腹部の球を「ひとつの輪郭」として合成するので、
-     膨らむほど実際に体の線がせり出す
-   ・腹部はバネ質点のリング。押した位置が局所的にへこみ、波が伝播する
+   ・写実寄りの人体描写（約7.3頭身・実際の人体比率）
+   ・陰影はぼかしたシェイプの重ね塗り＋肌の微細なノイズで表現
+   ・体の輪郭は「素の体型」と「腹部のふくらみ」を連続関数で合成するため、
+     どれだけ膨らんでも継ぎ目のない一本の線になる
+   ・腹部はバネ質点の環（ソフトボディ）。押した点が沈み、波が伝播する
    ========================================================= */
 window.PL = window.PL || {};
 
@@ -18,7 +19,6 @@ function el(tag, attrs){
 function clamp(v,a,b){ return v<a?a:v>b?b:v; }
 function lerp(a,b,t){ return a+(b-a)*t; }
 
-/* 色ユーティリティ */
 function hex2rgb(h){
   const n = parseInt(h.slice(1),16);
   return [(n>>16)&255,(n>>8)&255,n&255];
@@ -27,8 +27,14 @@ function mix(a,b,t){
   const A = typeof a==='string'?hex2rgb(a):a, B = typeof b==='string'?hex2rgb(b):b;
   return `rgb(${Math.round(lerp(A[0],B[0],t))},${Math.round(lerp(A[1],B[1],t))},${Math.round(lerp(A[2],B[2],t))})`;
 }
+function rgbaOf(hexOrRgb, a){
+  const c = typeof hexOrRgb==='string' && hexOrRgb[0]==='#'
+    ? hex2rgb(hexOrRgb)
+    : String(hexOrRgb).match(/\d+/g).map(Number);
+  return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+}
 
-/* Catmull-Rom を三次ベジェに変換した閉パス */
+/* Catmull-Rom → 三次ベジェ */
 function smoothClosedPath(pts){
   const n = pts.length;
   if (n < 3) return '';
@@ -41,7 +47,6 @@ function smoothClosedPath(pts){
   }
   return d+'Z';
 }
-/* 開いた滑らかパス */
 function smoothOpenPath(pts){
   const n = pts.length;
   if (n < 2) return '';
@@ -74,8 +79,8 @@ class SoftRing {
       for (let i=0;i<n;i++){
         vel[i] += acc[i]*h;
         off[i] += vel[i]*h;
-        if (off[i]> 34){ off[i]= 34; vel[i]*=-0.3; }
-        if (off[i]<-26){ off[i]=-26; vel[i]*=-0.3; }
+        if (off[i]> 32){ off[i]= 32; vel[i]*=-0.3; }
+        if (off[i]<-24){ off[i]=-24; vel[i]*=-0.3; }
       }
     }
   }
@@ -91,7 +96,6 @@ class SoftRing {
   pulse(amount){
     for (let i=0;i<this.n;i++) this.vel[i] += amount*(0.75+Math.random()*0.5);
   }
-  /** 角度 theta における変位（線形補間） */
   at(theta){
     const n = this.n;
     const f = (((theta/TAU)*n) % n + n) % n;
@@ -102,9 +106,24 @@ class SoftRing {
 PL.SoftRing = SoftRing;
 
 /* =========================================================
-   キャラクター描画
+   骨格の基準（約7.3頭身）
    ========================================================= */
 const VB = { w:300, h:470, cx:150 };
+const SK = {
+  headCy:54.5, headRx:21, headRy:28.5,
+  neckBase:100, shoulder:110, deltoid:122, bust:139, underBust:159,
+  waist:186, lowBelly:206, hip:224, crotch:250, torsoEnd:270,
+  knee:346, ankle:428, sole:444
+};
+
+/* 表情パラメータ（数値なので中間表情も作れる） */
+const EXPR = {
+  normal:   { open:1.00, browIn:0.00, browUp:0.00, mOpen:0.05, mCurve:0.16, flush:0.00 },
+  happy:    { open:0.80, browIn:0.00, browUp:0.10, mOpen:0.14, mCurve:0.72, flush:0.12 },
+  surprise: { open:1.28, browIn:-0.15,browUp:0.80, mOpen:0.60, mCurve:0.05, flush:0.16 },
+  strain:   { open:0.16, browIn:0.95, browUp:-0.60,mOpen:0.34, mCurve:-0.60,flush:0.55 },
+  shy:      { open:0.52, browIn:0.35, browUp:0.40, mOpen:0.08, mCurve:0.12, flush:0.62 }
+};
 
 class CharRenderer {
   constructor(svg){
@@ -112,171 +131,205 @@ class CharRenderer {
     svg.setAttribute('viewBox', `0 0 ${VB.w} ${VB.h}`);
     this.t = 0;
     this.belly = new SoftRing(32);
-    this.flesh = new SoftRing(18);      // 胴体全体の揺れ
+    this.flesh = new SoftRing(18);
     this.parts = {};
     this.particles = [];
     this.pool = [];
     this.expr = 'auto';
     this.exprTimer = 0;
+    this.ep = Object.assign({}, EXPR.normal);
+    this.blink = 1; this.blinkT = 2; this._blinkP = 0;
     this.squash = 0;
     this.onPoke = null;
     this.state = { belly:0, weight:0, gas:0, soft:30, mood:60 };
     this.char = null;
-    this.geo = { bellyCx:VB.cx, bellyCy:230, bellyR:26 };
+    this.geo = { bellyCx:VB.cx, bellyCy:200, bellyR:28 };
     this._build();
     this._bindPointer();
     this._raf = null;
   }
 
-  /* ---------- DOM ---------- */
+  /* ================= DOM ================= */
   _build(){
     const svg = this.svg;
     svg.innerHTML = '';
     const defs = el('defs');
     const P = this.parts;
 
-    const linGrad = (id, x1,y1,x2,y2) => {
+    const lin = (id,x1,y1,x2,y2,n) => {
       const g = el('linearGradient', { id, x1, y1, x2, y2 });
-      const s1 = el('stop',{offset:'0%'}), s2 = el('stop',{offset:'55%'}), s3 = el('stop',{offset:'100%'});
-      g.appendChild(s1); g.appendChild(s2); g.appendChild(s3);
-      defs.appendChild(g); return {s1,s2,s3};
+      const st = [];
+      for (let i=0;i<n;i++){
+        const s = el('stop', { offset:`${Math.round(i/(n-1)*100)}%` });
+        g.appendChild(s); st.push(s);
+      }
+      defs.appendChild(g); return st;
     };
-    const radGrad = (id, cx,cy,r) => {
+    const rad = (id,cx,cy,r,n) => {
       const g = el('radialGradient', { id, cx, cy, r });
-      const s1 = el('stop',{offset:'0%'}), s2 = el('stop',{offset:'100%'});
-      g.appendChild(s1); g.appendChild(s2);
-      defs.appendChild(g); return {s1,s2};
+      const st = [];
+      for (let i=0;i<n;i++){
+        const s = el('stop', { offset:`${Math.round(i/(n-1)*100)}%` });
+        g.appendChild(s); st.push(s);
+      }
+      defs.appendChild(g); return st;
     };
 
-    this.gSkin  = linGrad('gSkin',  '18%','0%','88%','100%');
-    this.gSkin2 = linGrad('gSkin2', '20%','0%','85%','100%');
-    this.gCloth = linGrad('gCloth', '20%','0%','85%','100%');
-    this.gSkirt = linGrad('gSkirt', '25%','0%','80%','100%');
-    this.gHair  = linGrad('gHair',  '25%','0%','80%','100%');
-    this.gShine = radGrad('gShine', '50%','50%','50%');
-    this.gShine.s1.setAttribute('stop-color','#fff');
-    this.gShine.s1.setAttribute('stop-opacity','.45');
-    this.gShine.s2.setAttribute('stop-color','#fff');
-    this.gShine.s2.setAttribute('stop-opacity','0');
+    this.gSkin  = lin('gSkin',  '22%','2%','82%','98%', 4);
+    this.gLimb  = lin('gLimb',  '18%','0%','86%','100%',4);
+    this.gCloth = lin('gCloth', '20%','0%','84%','100%',3);
+    this.gSkirt = lin('gSkirt', '22%','0%','82%','100%',3);
+    this.gHair  = lin('gHair',  '26%','0%','78%','100%',3);
+    this.gIris  = rad('gIris',  '50%','38%','60%', 3);
+
+    const sheen = rad('gSheen','50%','50%','50%',2);
+    sheen[0].setAttribute('stop-color','#fff'); sheen[0].setAttribute('stop-opacity','.5');
+    sheen[1].setAttribute('stop-color','#fff'); sheen[1].setAttribute('stop-opacity','0');
 
     const blur = (id, sd) => {
-      const f = el('filter', { id, x:'-60%', y:'-60%', width:'220%', height:'220%' });
+      const f = el('filter', { id, x:'-70%', y:'-70%', width:'240%', height:'240%' });
       f.appendChild(el('feGaussianBlur', { stdDeviation:sd }));
       defs.appendChild(f);
     };
-    blur('bl2', 2); blur('bl4', 4); blur('bl7', 7);
+    blur('b1',1); blur('b2',2); blur('b3',3.2); blur('b5',5); blur('b8',8);
 
-    // クリップ（毎フレーム d を更新）
+    // 肌の微細なざらつき
+    const grain = el('filter', { id:'grain', x:'0%', y:'0%', width:'100%', height:'100%' });
+    grain.appendChild(el('feTurbulence', { type:'fractalNoise', baseFrequency:'0.85', numOctaves:'4', seed:'7' }));
+    grain.appendChild(el('feColorMatrix', { type:'saturate', values:'0' }));
+    defs.appendChild(grain);
+
     const mkClip = (id) => {
       const c = el('clipPath', { id });
       const p = el('path', { d:'' });
       c.appendChild(p); defs.appendChild(c); return p;
     };
-    this.clipBodyPath = mkClip('clipBody');
-    this.clipEyeLPath = mkClip('clipEyeL');
-    this.clipEyeRPath = mkClip('clipEyeR');
-    this.clipHeadPath = mkClip('clipHead');
-
+    this.clipBody = mkClip('clipBody');
+    this.clipHead = mkClip('clipHead');
+    this.clipEyeL = mkClip('clipEyeL');
+    this.clipEyeR = mkClip('clipEyeR');
     svg.appendChild(defs);
+
     const add = (tag, attrs, parent) => { const n = el(tag, attrs); (parent||svg).appendChild(n); return n; };
 
-    P.shadow = add('ellipse', { cx:VB.cx, cy:441, rx:64, ry:9, fill:'rgba(0,0,0,.34)', filter:'url(#bl4)' });
+    P.shadow = add('ellipse', { cx:VB.cx, cy:447, rx:58, ry:8, fill:'rgba(0,0,0,.42)', filter:'url(#b8)' });
     P.hairBack = add('path', { d:'', fill:'url(#gHair)' });
 
-    // 脚
-    P.legL = add('path', { d:'', fill:'url(#gSkin2)' });
-    P.legR = add('path', { d:'', fill:'url(#gSkin2)' });
-    P.legShL = add('path', { d:'', fill:'rgba(150,86,72,.20)', filter:'url(#bl4)' });
-    P.legShR = add('path', { d:'', fill:'rgba(150,86,72,.20)', filter:'url(#bl4)' });
-    P.shoeL = add('path', { d:'', fill:'#4a3f63' });
-    P.shoeR = add('path', { d:'', fill:'#4a3f63' });
+    /* --- 脚 --- */
+    P.legL = add('path', { d:'', fill:'url(#gLimb)' });
+    P.legR = add('path', { d:'', fill:'url(#gLimb)' });
+    P.legShL = add('path', { d:'', fill:'rgba(120,66,50,.26)', filter:'url(#b5)' });
+    P.legShR = add('path', { d:'', fill:'rgba(120,66,50,.26)', filter:'url(#b5)' });
+    P.legHiL = add('path', { d:'', fill:'rgba(255,244,236,.26)', filter:'url(#b5)' });
+    P.legHiR = add('path', { d:'', fill:'rgba(255,244,236,.26)', filter:'url(#b5)' });
+    P.shoeL = add('path', { d:'', fill:'#3a3038' });
+    P.shoeR = add('path', { d:'', fill:'#3a3038' });
 
-    // 胴体（素肌のシルエット）
+    /* --- 胴体 --- */
     P.body = add('path', { d:'', fill:'url(#gSkin)' });
     P.bodyFx = add('g', { 'clip-path':'url(#clipBody)' });
-    P.rim        = add('path', { d:'', fill:'none', stroke:'rgba(150,80,66,.34)', 'stroke-width':14, filter:'url(#bl7)' }, P.bodyFx);
-    P.underBust  = add('path', { d:'', fill:'none', stroke:'rgba(150,80,66,.30)', 'stroke-width':6, filter:'url(#bl4)', 'stroke-linecap':'round' }, P.bodyFx);
-    P.bellyShine = add('ellipse', { fill:'url(#gShine)' }, P.bodyFx);
-    P.underBelly = add('path', { d:'', fill:'none', stroke:'rgba(146,74,62,.42)', 'stroke-width':7, filter:'url(#bl4)', 'stroke-linecap':'round' }, P.bodyFx);
-    P.foldL = add('path', { d:'', fill:'none', stroke:'rgba(150,80,66,.26)', 'stroke-width':5, filter:'url(#bl4)', 'stroke-linecap':'round' }, P.bodyFx);
-    P.foldR = add('path', { d:'', fill:'none', stroke:'rgba(150,80,66,.26)', 'stroke-width':5, filter:'url(#bl4)', 'stroke-linecap':'round' }, P.bodyFx);
-    P.navel = add('path', { d:'', fill:'none', stroke:'rgba(140,74,60,.75)', 'stroke-width':3, 'stroke-linecap':'round', filter:'url(#bl2)' }, P.bodyFx);
-    P.bodyLine = add('path', { d:'', fill:'none', stroke:'rgba(120,62,52,.40)', 'stroke-width':1.3 });
+    P.rim       = add('path', { d:'', fill:'none', stroke:'rgba(120,62,46,.40)', 'stroke-width':16, filter:'url(#b8)' }, P.bodyFx);
+    P.bellyLit  = add('ellipse', { fill:'url(#gSheen)' }, P.bodyFx);
+    P.bellyDark = add('path', { d:'', fill:'rgba(112,58,44,.28)', filter:'url(#b8)' }, P.bodyFx);
+    P.clavicle  = add('path', { d:'', fill:'none', stroke:'rgba(120,64,50,.24)', 'stroke-width':2.6, filter:'url(#b2)', 'stroke-linecap':'round' }, P.bodyFx);
+    P.underBust = add('path', { d:'', fill:'none', stroke:'rgba(116,60,46,.30)', 'stroke-width':5, filter:'url(#b3)', 'stroke-linecap':'round' }, P.bodyFx);
+    P.underBelly= add('path', { d:'', fill:'none', stroke:'rgba(110,56,42,.42)', 'stroke-width':6, filter:'url(#b3)', 'stroke-linecap':'round' }, P.bodyFx);
+    P.foldL = add('path', { d:'', fill:'none', stroke:'rgba(116,60,46,.28)', 'stroke-width':4, filter:'url(#b3)', 'stroke-linecap':'round' }, P.bodyFx);
+    P.foldR = add('path', { d:'', fill:'none', stroke:'rgba(116,60,46,.28)', 'stroke-width':4, filter:'url(#b3)', 'stroke-linecap':'round' }, P.bodyFx);
+    P.navelSh = add('ellipse', { fill:'rgba(96,48,36,.45)', filter:'url(#b2)' }, P.bodyFx);
+    P.navel   = add('path', { d:'', fill:'none', stroke:'rgba(88,44,32,.7)', 'stroke-width':2.2, 'stroke-linecap':'round', filter:'url(#b1)' }, P.bodyFx);
+    P.bodyGrain = add('rect', { x:0, y:80, width:300, height:220, filter:'url(#grain)', opacity:.05 }, P.bodyFx);
+    P.bodyLine = add('path', { d:'', fill:'none', stroke:'rgba(92,48,36,.30)', 'stroke-width':1.1 });
 
-    // ボトムス → トップス の順（お腹が上に乗る）
-    P.skirt   = add('path', { d:'', fill:'url(#gSkirt)' });
-    P.skirtSh = add('path', { d:'', fill:'rgba(0,0,0,.18)', filter:'url(#bl4)' });
-    P.bottomLines = add('path', { d:'', fill:'none', stroke:'rgba(0,0,0,.18)', 'stroke-width':1.4 });
-    P.top     = add('path', { d:'', fill:'url(#gCloth)' });
-    P.topSh   = add('path', { d:'', fill:'none', stroke:'rgba(0,0,0,.22)', 'stroke-width':5, filter:'url(#bl4)' });
-    P.deco    = add('path', { d:'', fill:'none', stroke:'rgba(255,255,255,.55)', 'stroke-width':2, 'stroke-linecap':'round' });
+    /* --- 服（下→上） --- */
+    P.skirt     = add('path', { d:'', fill:'url(#gSkirt)' });
+    P.skirtSh   = add('path', { d:'', fill:'rgba(0,0,0,.26)', filter:'url(#b5)' });
+    P.skirtFold = add('path', { d:'', fill:'none', stroke:'rgba(0,0,0,.18)', 'stroke-width':1.2 });
+    P.top       = add('path', { d:'', fill:'url(#gCloth)' });
+    P.topSh     = add('path', { d:'', fill:'none', stroke:'rgba(0,0,0,.24)', 'stroke-width':5, filter:'url(#b3)' });
+    P.topFold   = add('path', { d:'', fill:'none', stroke:'rgba(0,0,0,.14)', 'stroke-width':1.2, 'stroke-linecap':'round' });
+    P.deco      = add('path', { d:'', fill:'none', stroke:'rgba(255,255,255,.32)', 'stroke-width':1.4, 'stroke-linecap':'round' });
+    P.acc       = add('path', { d:'', fill:'rgba(252,252,255,.95)', stroke:'rgba(0,0,0,.10)', 'stroke-width':.8 });
 
-    // 上着 → 腕 → 袖
-    P.acc     = add('path', { d:'', fill:'rgba(255,255,255,.82)', stroke:'rgba(0,0,0,.12)', 'stroke-width':1 });
-    P.armL = add('path', { d:'', fill:'url(#gSkin2)' });
-    P.armR = add('path', { d:'', fill:'url(#gSkin2)' });
-    P.armShL = add('path', { d:'', fill:'rgba(150,86,72,.18)', filter:'url(#bl4)' });
-    P.armShR = add('path', { d:'', fill:'rgba(150,86,72,.18)', filter:'url(#bl4)' });
-    P.sleeveL = add('path', { d:'', fill:'url(#gCloth)', stroke:'rgba(0,0,0,.12)', 'stroke-width':1 });
-    P.sleeveR = add('path', { d:'', fill:'url(#gCloth)', stroke:'rgba(0,0,0,.12)', 'stroke-width':1 });
+    /* --- 腕 --- */
+    P.armCastL = add('path', { d:'', fill:'rgba(40,18,12,.42)', filter:'url(#b5)' });
+    P.armCastR = add('path', { d:'', fill:'rgba(40,18,12,.42)', filter:'url(#b5)' });
+    P.armL = add('path', { d:'', fill:'url(#gLimb)' });
+    P.armR = add('path', { d:'', fill:'url(#gLimb)' });
+    P.armShL = add('path', { d:'', fill:'rgba(120,66,50,.24)', filter:'url(#b5)' });
+    P.armShR = add('path', { d:'', fill:'rgba(120,66,50,.24)', filter:'url(#b5)' });
+    P.sleeveL = add('path', { d:'', fill:'url(#gCloth)' });
+    P.sleeveR = add('path', { d:'', fill:'url(#gCloth)' });
+    P.sleeveShL = add('path', { d:'', fill:'rgba(0,0,0,.16)', filter:'url(#b3)' });
+    P.sleeveShR = add('path', { d:'', fill:'rgba(0,0,0,.16)', filter:'url(#b3)' });
 
-    P.hairSide = add('path', { d:'', fill:'url(#gHair)' });   // 肩から前に垂れる髪
+    P.hairSide = add('path', { d:'', fill:'url(#gHair)' });
 
-    // 首・頭
-    P.neck   = add('path', { d:'', fill:'url(#gSkin2)' });
-    P.neckSh = add('path', { d:'', fill:'rgba(140,74,62,.34)', filter:'url(#bl4)' });
+    /* --- 首・頭 --- */
+    P.neck   = add('path', { d:'', fill:'url(#gLimb)' });
+    P.neckSh = add('path', { d:'', fill:'rgba(104,52,40,.42)', filter:'url(#b5)' });
     P.head = add('g', {});
     const H = P.head;
-    P.face  = add('path', { d:'', fill:'url(#gSkin)' }, H);
-    P.earL  = add('path', { d:'', fill:'url(#gSkin2)' }, H);
-    P.earR  = add('path', { d:'', fill:'url(#gSkin2)' }, H);
+    P.earL = add('path', { d:'', fill:'url(#gLimb)' }, H);
+    P.earR = add('path', { d:'', fill:'url(#gLimb)' }, H);
+    P.face = add('path', { d:'', fill:'url(#gSkin)' }, H);
+
     P.faceFx = add('g', { 'clip-path':'url(#clipHead)' }, H);
-    P.cheekSh = add('path', { d:'', fill:'none', stroke:'rgba(150,80,66,.28)', 'stroke-width':8, filter:'url(#bl7)' }, P.faceFx);
-    P.blushL = add('ellipse', { rx:9, ry:4.6, filter:'url(#bl2)', opacity:.5 }, P.faceFx);
-    P.blushR = add('ellipse', { rx:9, ry:4.6, filter:'url(#bl2)', opacity:.5 }, P.faceFx);
+    P.foreHi   = add('ellipse', { fill:'rgba(255,247,240,.30)', filter:'url(#b8)' }, P.faceFx);
+    P.templeL  = add('ellipse', { fill:'rgba(118,64,50,.22)', filter:'url(#b8)' }, P.faceFx);
+    P.templeR  = add('ellipse', { fill:'rgba(118,64,50,.22)', filter:'url(#b8)' }, P.faceFx);
+    P.cheekL   = add('ellipse', { filter:'url(#b5)', opacity:.3 }, P.faceFx);
+    P.cheekR   = add('ellipse', { filter:'url(#b5)', opacity:.3 }, P.faceFx);
+    P.jawSh    = add('path', { d:'', fill:'none', stroke:'rgba(112,58,44,.26)', 'stroke-width':9, filter:'url(#b8)' }, P.faceFx);
+    P.noseSh   = add('path', { d:'', fill:'rgba(120,66,52,.30)', filter:'url(#b3)' }, P.faceFx);
+    P.noseHi   = add('ellipse', { fill:'rgba(255,248,242,.5)', filter:'url(#b2)' }, P.faceFx);
+    P.philtrum = add('path', { d:'', fill:'none', stroke:'rgba(120,66,52,.20)', 'stroke-width':1.5, filter:'url(#b1)' }, P.faceFx);
+    P.chinHi   = add('ellipse', { fill:'rgba(255,248,242,.30)', filter:'url(#b3)' }, P.faceFx);
+    P.faceGrain= add('rect', { x:100, y:10, width:100, height:100, filter:'url(#grain)', opacity:.055 }, P.faceFx);
 
-    P.eyeWL = add('path', { d:'', fill:'#fdf7f6' }, H);
-    P.eyeWR = add('path', { d:'', fill:'#fdf7f6' }, H);
-    P.irisL = add('g', { 'clip-path':'url(#clipEyeL)' }, H);
-    P.irisR = add('g', { 'clip-path':'url(#clipEyeR)' }, H);
-    P.iL  = add('circle', { r:5 }, P.irisL);
-    P.iLd = add('circle', { r:5, fill:'none', 'stroke-width':1.4, stroke:'rgba(30,16,30,.5)' }, P.irisL);
-    P.pL  = add('circle', { r:2.1, fill:'#241626' }, P.irisL);
-    P.hL  = add('circle', { r:1.9, fill:'#fff' }, P.irisL);
-    P.hL2 = add('circle', { r:1.0, fill:'rgba(255,255,255,.7)' }, P.irisL);
-    P.iR  = add('circle', { r:5 }, P.irisR);
-    P.iRd = add('circle', { r:5, fill:'none', 'stroke-width':1.4, stroke:'rgba(30,16,30,.5)' }, P.irisR);
-    P.pR  = add('circle', { r:2.1, fill:'#241626' }, P.irisR);
-    P.hR  = add('circle', { r:1.9, fill:'#fff' }, P.irisR);
-    P.hR2 = add('circle', { r:1.0, fill:'rgba(255,255,255,.7)' }, P.irisR);
+    P.nostrilL = add('path', { d:'', fill:'rgba(88,46,36,.5)', filter:'url(#b1)' }, H);
+    P.nostrilR = add('path', { d:'', fill:'rgba(88,46,36,.5)', filter:'url(#b1)' }, H);
 
-    P.lashL = add('path', { d:'', fill:'none', stroke:'#3d2436', 'stroke-width':2.6, 'stroke-linecap':'round' }, H);
-    P.lashR = add('path', { d:'', fill:'none', stroke:'#3d2436', 'stroke-width':2.6, 'stroke-linecap':'round' }, H);
-    P.lidL  = add('path', { d:'', fill:'none', stroke:'rgba(120,70,80,.5)', 'stroke-width':1, 'stroke-linecap':'round' }, H);
-    P.lidR  = add('path', { d:'', fill:'none', stroke:'rgba(120,70,80,.5)', 'stroke-width':1, 'stroke-linecap':'round' }, H);
-    P.browL = add('path', { d:'', fill:'none', 'stroke-width':1.9, 'stroke-linecap':'round', opacity:.85 }, H);
-    P.browR = add('path', { d:'', fill:'none', 'stroke-width':1.9, 'stroke-linecap':'round', opacity:.85 }, H);
-    P.nose  = add('path', { d:'', fill:'none', stroke:'rgba(150,88,76,.55)', 'stroke-width':1.4, 'stroke-linecap':'round' }, H);
-    P.mouth = add('path', { d:'', fill:'none', stroke:'#b0575c', 'stroke-width':1.8, 'stroke-linecap':'round' }, H);
-    P.lip   = add('path', { d:'', fill:'rgba(200,105,110,.5)' }, H);
+    ['L','R'].forEach(t => {
+      P['sclera'+t] = add('path', { d:'', fill:'#f2ebe8' }, H);
+      const g = add('g', { 'clip-path':`url(#clipEye${t})` }, H);
+      P['irisG'+t]  = g;
+      P['iris'+t]   = add('circle', { r:4, fill:'url(#gIris)' }, g);
+      P['limb'+t]   = add('circle', { r:4, fill:'none', 'stroke-width':1.3, stroke:'rgba(24,14,10,.62)' }, g);
+      P['pupil'+t]  = add('circle', { r:1.7, fill:'#1a1116' }, g);
+      P['cat'+t]    = add('circle', { r:1.5, fill:'rgba(255,255,255,.92)' }, g);
+      P['cat2'+t]   = add('circle', { r:.8, fill:'rgba(255,255,255,.5)' }, g);
+      P['lidSh'+t]  = add('path', { d:'', fill:'none', stroke:'rgba(70,40,34,.42)', 'stroke-width':3, filter:'url(#b1)' }, g);
+      P['lash'+t]   = add('path', { d:'', fill:'#2a1c20' }, H);
+      P['lower'+t]  = add('path', { d:'', fill:'none', stroke:'rgba(132,84,76,.55)', 'stroke-width':1.0, 'stroke-linecap':'round' }, H);
+      P['crease'+t] = add('path', { d:'', fill:'none', stroke:'rgba(130,84,72,.3)', 'stroke-width':1, 'stroke-linecap':'round' }, H);
+      P['brow'+t]   = add('path', { d:'', fill:'#3a281f' }, H);
+    });
+
+    P.mouthSh  = add('path', { d:'', fill:'rgba(110,58,46,.26)', filter:'url(#b2)' }, H);
+    P.lipUp    = add('path', { d:'', fill:'#a85f5c' }, H);
+    P.lipLow   = add('path', { d:'', fill:'#bd6f69' }, H);
+    P.mouthGap = add('path', { d:'', fill:'#5c3138' }, H);
+    P.lipLine  = add('path', { d:'', fill:'none', stroke:'rgba(84,40,40,.75)', 'stroke-width':1.15, 'stroke-linecap':'round' }, H);
+    P.lipHi    = add('ellipse', { fill:'rgba(255,240,236,.4)', filter:'url(#b1)' }, H);
 
     P.hairFront = add('path', { d:'', fill:'url(#gHair)' }, H);
-    P.hairHi    = add('path', { d:'', fill:'rgba(255,255,255,.20)', filter:'url(#bl4)' }, H);
+    P.hairSpec  = add('path', { d:'', fill:'rgba(255,255,255,.14)', filter:'url(#b3)' }, H);
     P.glasses   = add('g', {}, H);
 
-    // エフェクト
+    /* --- エフェクト --- */
     P.fx = add('g', {});
     P.sweat = add('g', { opacity:0 }, P.fx);
     for (let i=0;i<3;i++){
-      P.sweat.appendChild(el('path', { d:'M0,0 q3.5,5 0,8 q-3.5,-3 0,-8', fill:'rgba(160,215,245,.9)',
-        stroke:'rgba(90,160,200,.8)', 'stroke-width':.7, transform:`translate(${i*15-15},${i*4})` }));
+      P.sweat.appendChild(el('path', { d:'M0,0 q3,4.5 0,7 q-3,-2.5 0,-7', fill:'rgba(180,220,240,.7)',
+        stroke:'rgba(110,165,195,.55)', 'stroke-width':.6, transform:`translate(${i*13-13},${i*4})` }));
     }
-    P.wobL = add('path', { d:'', fill:'none', stroke:'rgba(255,255,255,.55)', 'stroke-width':2.2, 'stroke-linecap':'round', opacity:0 }, P.fx);
-    P.wobR = add('path', { d:'', fill:'none', stroke:'rgba(255,255,255,.55)', 'stroke-width':2.2, 'stroke-linecap':'round', opacity:0 }, P.fx);
+    P.wobL = add('path', { d:'', fill:'none', stroke:'rgba(255,255,255,.36)', 'stroke-width':1.8, 'stroke-linecap':'round', opacity:0 }, P.fx);
+    P.wobR = add('path', { d:'', fill:'none', stroke:'rgba(255,255,255,.36)', 'stroke-width':1.8, 'stroke-linecap':'round', opacity:0 }, P.fx);
     P.pgroup = add('g', {}, P.fx);
   }
 
-  /* ---------- ポインタ ---------- */
+  /* ================= 入力 ================= */
   _bindPointer(){
     const svg = this.svg;
     let down = false, lastAng = 0;
@@ -290,7 +343,7 @@ class CharRenderer {
       const g = this.geo;
       const dx = p.x-g.bellyCx, dy = p.y-g.bellyCy;
       const d = Math.hypot(dx,dy);
-      return { d, ang:Math.atan2(dy,dx), inside: d < g.bellyR+18 };
+      return { d, ang:Math.atan2(dy,dx), inside: d < g.bellyR+16 };
     };
     const press = (e) => {
       const p = toLocal(e); if (!p) return;
@@ -300,8 +353,8 @@ class CharRenderer {
         try { svg.setPointerCapture(e.pointerId); } catch(_){}
       }
       const soft = this.state.soft/100;
-      this.belly.impulse(h.ang, -(60+soft*120), 2.4);
-      this.flesh.impulse(h.ang, -(10+soft*22), 3);
+      this.belly.impulse(h.ang, -(58+soft*116), 2.4);
+      this.flesh.impulse(h.ang, -(10+soft*20), 3);
       this.showWobble();
       if (this.onPoke) this.onPoke(h);
       e.preventDefault();
@@ -315,7 +368,7 @@ class CharRenderer {
       while (da < -Math.PI) da += TAU;
       if (Math.abs(da) > 0.06){
         const soft = this.state.soft/100;
-        this.belly.impulse(h.ang, -(18+soft*40), 2.0);
+        this.belly.impulse(h.ang, -(17+soft*38), 2.0);
         lastAng = h.ang;
         this.showWobble();
       }
@@ -324,7 +377,7 @@ class CharRenderer {
       if (!down) return;
       down = false;
       const soft = this.state.soft/100;
-      this.belly.impulse(lastAng, 34+soft*70, 2.8);
+      this.belly.impulse(lastAng, 32+soft*66, 2.8);
     };
     svg.addEventListener('pointerdown', press);
     svg.addEventListener('pointermove', move);
@@ -332,39 +385,43 @@ class CharRenderer {
     svg.addEventListener('pointerleave', up);
   }
 
-  /* ---------- 外部API ---------- */
+  /* ================= 外部API ================= */
   setCharacter(def){
     this.char = def;
     const p = def.palette;
-    const setLin = (g,a,b,c) => {
-      g.s1.setAttribute('stop-color', a);
-      g.s2.setAttribute('stop-color', b);
-      g.s3.setAttribute('stop-color', c);
-    };
-    setLin(this.gSkin,  mix(p.skin,'#fff8f2',.32), p.skin, mix(p.skin,'#b8705a',.30));
-    setLin(this.gSkin2, mix(p.skin,'#fff8f2',.24), p.skin, mix(p.skin,'#b8705a',.28));
-    setLin(this.gCloth, mix(p.cloth,'#ffffff',.35), p.cloth, p.cloth2);
-    setLin(this.gSkirt, mix(p.cloth2,'#ffffff',.28), p.cloth2, mix(p.cloth2,'#000000',.35));
-    setLin(this.gHair,  mix(p.hair,'#ffffff',.30), p.hair, p.hair2);
-
     const P = this.parts;
-    P.blushL.setAttribute('fill', p.blush);
-    P.blushR.setAttribute('fill', p.blush);
-    P.iL.setAttribute('fill', p.eye); P.iR.setAttribute('fill', p.eye);
-    const browCol = mix(p.hair2, '#3a2430', .45);
-    P.browL.setAttribute('stroke', browCol); P.browR.setAttribute('stroke', browCol);
-    P.lashL.setAttribute('stroke', mix(p.hair2,'#241624',.55));
-    P.lashR.setAttribute('stroke', mix(p.hair2,'#241624',.55));
-    P.shoeL.setAttribute('fill', mix(p.cloth2,'#000000',.45));
-    P.shoeR.setAttribute('fill', mix(p.cloth2,'#000000',.45));
-    P.acc.setAttribute('fill', def.accessory==='coat' ? 'rgba(252,252,255,.92)' : 'rgba(255,255,255,.82)');
+    const set = (arr, cols) => arr.forEach((s,i) => s.setAttribute('stop-color', cols[i]));
+
+    set(this.gSkin, [
+      mix(p.skin,'#fff7f0',.30), p.skin,
+      mix(p.skin,'#a15e42',.22), mix(p.skin,'#7d452f',.40)
+    ]);
+    set(this.gLimb, [
+      mix(p.skin,'#fff7f0',.24), p.skin,
+      mix(p.skin,'#a15e42',.18), mix(p.skin,'#7d452f',.34)
+    ]);
+    set(this.gCloth, [ mix(p.cloth,'#ffffff',.26), p.cloth, mix(p.cloth,'#000000',.30) ]);
+    set(this.gSkirt, [ mix(p.cloth2,'#ffffff',.20), p.cloth2, mix(p.cloth2,'#000000',.42) ]);
+    set(this.gHair,  [ mix(p.hair,'#ffffff',.22), p.hair, p.hair2 ]);
+    set(this.gIris,  [ mix(p.eye,'#ffffff',.35), p.eye, mix(p.eye,'#000000',.45) ]);
+
+    P.rim.setAttribute('stroke', rgbaOf(mix(p.skin,'#6d3a26',.60), 0.42));
+    ['L','R'].forEach(t => {
+      P['cheek'+t].setAttribute('fill', p.blush);
+      P['brow'+t].setAttribute('fill', mix(p.hair2,'#3a2a22',.35));
+      P['lash'+t].setAttribute('fill', mix(p.hair2,'#221418',.45));
+    });
+    P.lipUp.setAttribute('fill',  mix(p.blush,'#7d3540',.42));
+    P.lipLow.setAttribute('fill', mix(p.blush,'#9c4a4c',.22));
+    P.shoeL.setAttribute('fill', mix(p.cloth2,'#000000',.55));
+    P.shoeR.setAttribute('fill', mix(p.cloth2,'#000000',.55));
 
     P.glasses.innerHTML = '';
     if (def.accessory === 'glasses'){
-      const mk = (cx) => el('rect', { x:cx-9, y:-6.5, width:18, height:13, rx:5,
-        fill:'rgba(210,240,255,.16)', stroke:'rgba(215,238,255,.85)', 'stroke-width':1.3 });
-      P.glasses.appendChild(mk(-11)); P.glasses.appendChild(mk(11));
-      P.glasses.appendChild(el('path',{ d:'M-2,0 H2', stroke:'rgba(215,238,255,.85)', 'stroke-width':1.3 }));
+      const mk = (cx) => el('rect', { x:cx-8, y:-5.5, width:16, height:11, rx:3.5,
+        fill:'rgba(220,238,250,.12)', stroke:'rgba(90,80,74,.7)', 'stroke-width':1 });
+      P.glasses.appendChild(mk(-9.5)); P.glasses.appendChild(mk(9.5));
+      P.glasses.appendChild(el('path',{ d:'M-1.5,0 H1.5', stroke:'rgba(90,80,74,.7)', 'stroke-width':1 }));
     }
     this.belly.off.fill(0); this.belly.vel.fill(0);
     this.flesh.off.fill(0); this.flesh.vel.fill(0);
@@ -391,7 +448,7 @@ class CharRenderer {
         vx: side*(22+Math.random()*44)*power, vy: 6+Math.random()*24,
         r: 4+Math.random()*8*power, life:0, max:0.75+Math.random()*0.6 });
     }
-    this.belly.impulse(Math.PI/2, -50*power, 4);
+    this.belly.impulse(Math.PI/2, -48*power, 4);
     this.belly.pulse(-12*power);
   }
 
@@ -401,7 +458,7 @@ class CharRenderer {
       const a = Math.random()*TAU;
       this.particles.push({ type:'star',
         x: g.bellyCx + Math.cos(a)*(g.bellyR+8), y: g.bellyCy + Math.sin(a)*(g.bellyR+8),
-        vx: Math.cos(a)*28, vy: Math.sin(a)*28-18, r:2.5+Math.random()*2.5,
+        vx: Math.cos(a)*28, vy: Math.sin(a)*28-18, r:2+Math.random()*2,
         life:0, max:0.7+Math.random()*0.4 });
     }
   }
@@ -421,19 +478,34 @@ class CharRenderer {
   update(dt){
     this.t += dt;
     const soft = clamp(this.state.soft,0,100)/100;
-    const k    = 120 - soft*68;
-    const damp = 5.6 - soft*3.8;
-    const coup = 44 + soft*26;
-    this.belly.step(dt, k, damp, coup);
-    this.flesh.step(dt, k*1.25, damp*1.3, coup*0.8);
+    this.belly.step(dt, 120-soft*68, 5.6-soft*3.8, 44+soft*26);
+    this.flesh.step(dt, (120-soft*68)*1.25, (5.6-soft*3.8)*1.3, (44+soft*26)*0.8);
 
     this._idle = (this._idle||0) - dt;
     if (this._idle <= 0){
       this._idle = 1.8 + Math.random()*2.4;
-      const amp = (1.5+soft*8) * (0.4 + this.state.belly/100);
-      this.belly.impulse(Math.random()*TAU, amp, 4);
+      this.belly.impulse(Math.random()*TAU, (1.4+soft*7)*(0.4+this.state.belly/100), 4);
     }
+
+    // まばたき
+    this.blinkT -= dt;
+    if (this.blinkT <= 0){ this.blinkT = 2.6 + Math.random()*3.6; this._blinkP = 0.16; }
+    if (this._blinkP > 0){
+      this._blinkP -= dt;
+      this.blink = Math.abs(clamp(this._blinkP/0.16,0,1)-0.5)*2;
+    } else this.blink = 1;
+
+    // 表情の補間
     if (this.exprTimer > 0){ this.exprTimer -= dt; if (this.exprTimer<=0) this.expr='auto'; }
+    const st = this.state;
+    let name = this.expr;
+    if (name === 'auto' || !name || !EXPR[name]){
+      const strain = Math.max(st.belly, st.gas);
+      name = strain>=86 ? 'strain' : strain>=60 ? 'shy' : st.mood>=78 ? 'happy' : 'normal';
+    }
+    const tgt = EXPR[name], k = 1-Math.exp(-dt*9);
+    for (const key in tgt) this.ep[key] = lerp(this.ep[key], tgt[key], k);
+
     this._wobble = Math.max(0, (this._wobble||0) - dt*1.5);
     this.squash *= Math.exp(-dt*4);
 
@@ -442,523 +514,563 @@ class CharRenderer {
   }
 
   /* =========================================================
-     体型レイアウト
+     体
      ========================================================= */
   _layout(){
     const P = this.parts, S = this.state;
     const belly = clamp(S.belly,0,100), weight = clamp(S.weight,0,100);
-    const gas = clamp(S.gas,0,100), soft = clamp(S.soft,0,100), mood = clamp(S.mood,0,100);
+    const gas = clamp(S.gas,0,100), soft = clamp(S.soft,0,100);
     const wt = weight/100;
     const cx = VB.cx;
     const OF = (this.char && this.char.outfit) || { top:'blouse', sleeve:1, bottom:'skirt', over:null };
 
-    const breathe = Math.sin(this.t*1.45)*(0.9 + belly/100*2.2);
-    const bob = Math.sin(this.t*1.45)*1.3;
+    const breathe = Math.sin(this.t*1.35)*(0.8 + belly/100*2.0);
+    const bob = Math.sin(this.t*1.35)*1.1;
     const sq = this.squash;
 
-    /* --- 骨格の基準 y --- */
-    const yNeck = 108, yShoulder = 120, yBust = 150, yUnderBust = 174,
-          yWaist = 198, yLowBelly = 222, yHip = 244, yCrotch = 262, yBottom = 282,
-          yKnee = 336, yAnkle = 424, yFoot = 438;
-
-    /* --- 腹部のふくらみ（ガウス関数で滑らかに膨らませる） --- */
-    const bulgeA  = belly*0.42 + weight*0.10;                       // 半幅の増分
-    const bulgeCy = 216 + belly*0.10 + weight*0.05 + breathe*0.25;  // ふくらみの中心
-    const bulgeS  = 26 + belly*0.30 + weight*0.12;                  // 縦の半径
-    // 楕円状のふくらみ。丸みが出るよう指数を 0.72 にしている
-    const gaussAt = (y) => {
-      const t = (y-bulgeCy)/bulgeS;
-      const v = 1 - t*t;
+    /* --- 腹部のふくらみ --- */
+    const bulgeA  = belly*0.42 + weight*0.10;
+    const bulgeCy = SK.lowBelly - 6 + belly*0.10 + weight*0.05 + breathe*0.25;
+    const bulgeS  = 25 + belly*0.30 + weight*0.12;
+    const bulgeAt = (y) => {
+      const t = (y-bulgeCy)/bulgeS, v = 1-t*t;
       return v <= 0 ? 0 : Math.pow(v, 0.72);
     };
 
     /* --- 素の体型（半幅） --- */
-    const fl = (i) => this.flesh.off[i % this.flesh.n] * (0.30 + soft/100*0.8);
+    const fl = (i) => this.flesh.off[i % this.flesh.n] * (0.28 + soft/100*0.75);
     const prof = [
-      { y:yNeck,      w:10.5 + wt*1.5 },
-      { y:yShoulder,  w:33.0 + wt*7  + fl(0) },
-      { y:132,        w:36.5 + wt*8  + fl(1) },
-      { y:yBust,      w:35.0 + wt*12 + fl(2) },
-      { y:yUnderBust, w:29.5 + wt*18 + fl(3) },
-      { y:yWaist,     w:26.0 + wt*24 + fl(4) },
-      { y:yLowBelly,  w:29.0 + wt*26 + fl(5) },
-      { y:yHip,       w:39.0 + wt*25 + fl(6) },
-      { y:yCrotch,    w:36.0 + wt*22 + fl(7) },
-      { y:yBottom,    w:21.0 + wt*13 }
+      { y:SK.neckBase,  w:11.5 + wt*2 },
+      { y:SK.shoulder,  w:38.0 + wt*7  + fl(0) },
+      { y:SK.deltoid,   w:39.0 + wt*8  + fl(1) },
+      { y:SK.bust,      w:35.0 + wt*12 + fl(2) },
+      { y:SK.underBust, w:30.0 + wt*17 + fl(3) },
+      { y:SK.waist,     w:25.5 + wt*24 + fl(4) },
+      { y:SK.lowBelly,  w:29.0 + wt*26 + fl(5) },
+      { y:SK.hip,       w:39.0 + wt*25 + fl(6) },
+      { y:SK.crotch,    w:36.0 + wt*22 + fl(7) },
+      { y:SK.torsoEnd,  w:22.0 + wt*13 }
     ];
     const profAt = (y) => {
       if (y <= prof[0].y) return prof[0].w;
       for (let i=1;i<prof.length;i++){
         if (y <= prof[i].y){
-          const a = prof[i-1], b = prof[i];
-          const t = (y-a.y)/(b.y-a.y);
+          const a = prof[i-1], b = prof[i], t = (y-a.y)/(b.y-a.y);
           return lerp(a.w, b.w, t*t*(3-2*t));
         }
       }
       return prof[prof.length-1].w;
     };
 
-    /* --- 押した場所が局所的に揺れる（ふくらみの範囲だけ） --- */
     const perturb = (y, right) => {
-      const g = gaussAt(y);
+      const g = bulgeAt(y);
       if (g < 0.02) return 0;
       const base = Math.asin(clamp((y-bulgeCy)/bulgeS, -1, 1));
       const th = right ? base : Math.PI - base;
       return this.belly.at(th) * g * (0.5 + soft/100*0.9);
     };
     const halfW = (y, right) =>
-      profAt(y) + bulgeA*gaussAt(y) + perturb(y,right) + breathe*0.30*gaussAt(y);
+      profAt(y) + bulgeA*bulgeAt(y) + perturb(y,right) + breathe*0.28*bulgeAt(y);
 
-    this.geo = { bellyCx:cx, bellyCy:bulgeCy, bellyR: profAt(bulgeCy) + bulgeA };
+    const bR = profAt(bulgeCy) + bulgeA;
+    this.geo = { bellyCx:cx, bellyCy:bulgeCy, bellyR:bR };
 
-    /* --- シルエット --- */
-    const rightPts = [], leftPts = [];
-    for (let y=yNeck; y<=yBottom+0.01; y+=4.5){
-      rightPts.push({ x: cx + halfW(y,true),  y });
-      leftPts .push({ x: cx - halfW(y,false), y });
+    /* --- 輪郭 --- */
+    const rp = [], lp = [];
+    for (let y=SK.neckBase; y<=SK.torsoEnd+0.01; y+=4){
+      rp.push({ x: cx + halfW(y,true),  y });
+      lp.push({ x: cx - halfW(y,false), y });
     }
-    const bodyD = smoothClosedPath(rightPts.concat(leftPts.reverse()));
+    const bodyD = smoothClosedPath(rp.concat(lp.reverse()));
     P.body.setAttribute('d', bodyD);
     P.bodyLine.setAttribute('d', bodyD);
-    this.clipBodyPath.setAttribute('d', bodyD);
+    this.clipBody.setAttribute('d', bodyD);
 
     /* --- 体の陰影 --- */
     P.rim.setAttribute('d', bodyD);
-    const bulge = clamp(bulgeA/26, 0, 1);
-    const bR = profAt(bulgeCy) + bulgeA;
+    const bulge = clamp(bulgeA/24, 0, 1);
 
-    P.bellyShine.setAttribute('cx', cx - bR*0.28);
-    P.bellyShine.setAttribute('cy', bulgeCy - bulgeS*0.34);
-    P.bellyShine.setAttribute('rx', bR*0.62);
-    P.bellyShine.setAttribute('ry', bulgeS*0.55);
-    P.bellyShine.setAttribute('opacity', (0.42 + soft/100*0.40).toFixed(2));
+    P.bellyLit.setAttribute('cx', cx - bR*0.26);
+    P.bellyLit.setAttribute('cy', bulgeCy - bulgeS*0.30);
+    P.bellyLit.setAttribute('rx', bR*0.60);
+    P.bellyLit.setAttribute('ry', bulgeS*0.56);
+    P.bellyLit.setAttribute('opacity', (0.36 + soft/100*0.32).toFixed(2));
 
+    P.bellyDark.setAttribute('d',
+      `M${cx+bR*0.20},${bulgeCy-bulgeS*0.85} Q${cx+bR*1.05},${bulgeCy} ${cx+bR*0.18},${bulgeCy+bulgeS*0.9} `+
+      `Q${cx+bR*0.72},${bulgeCy} ${cx+bR*0.20},${bulgeCy-bulgeS*0.85} Z`);
+
+    P.clavicle.setAttribute('d',
+      `M${cx-profAt(SK.shoulder)*0.62},${SK.shoulder+6} Q${cx-10},${SK.shoulder+13} ${cx-2},${SK.shoulder+9}`+
+      `M${cx+profAt(SK.shoulder)*0.62},${SK.shoulder+6} Q${cx+10},${SK.shoulder+13} ${cx+2},${SK.shoulder+9}`);
     P.underBust.setAttribute('d',
-      `M${cx-profAt(yUnderBust)*0.70},${yUnderBust-4} Q${cx},${yUnderBust+8} ${cx+profAt(yUnderBust)*0.70},${yUnderBust-4}`);
+      `M${cx-profAt(SK.underBust)*0.68},${SK.underBust-4} Q${cx},${SK.underBust+8} ${cx+profAt(SK.underBust)*0.68},${SK.underBust-4}`);
 
     const ubY = bulgeCy + bulgeS*0.74;
     P.underBelly.setAttribute('d',
-      `M${cx-bR*0.74},${ubY-6} Q${cx},${ubY+bulgeS*0.26} ${cx+bR*0.74},${ubY-6}`);
-    P.underBelly.setAttribute('opacity', (0.20+bulge*0.70).toFixed(2));
+      `M${cx-bR*0.72},${ubY-6} Q${cx},${ubY+bulgeS*0.26} ${cx+bR*0.72},${ubY-6}`);
+    P.underBelly.setAttribute('opacity', (0.18+bulge*0.66).toFixed(2));
 
-    const foldA = clamp((weight-45)/55, 0, 1);
-    P.foldL.setAttribute('d', `M${cx-profAt(yWaist)*0.96},${yWaist-6} q8,9 1,17`);
-    P.foldR.setAttribute('d', `M${cx+profAt(yWaist)*0.96},${yWaist-6} q-8,9 -1,17`);
+    const foldA = clamp((weight-42)/58, 0, 1);
+    P.foldL.setAttribute('d', `M${cx-profAt(SK.waist)*0.94},${SK.waist-6} q7,8 1,15`);
+    P.foldR.setAttribute('d', `M${cx+profAt(SK.waist)*0.94},${SK.waist-6} q-7,8 -1,15`);
     P.foldL.setAttribute('opacity', foldA); P.foldR.setAttribute('opacity', foldA);
 
-    const navY = bulgeCy + bulgeS*0.20;
-    P.navel.setAttribute('d', `M${cx},${navY-2.5} q${2.2+belly*0.016},3 0,${6+belly*0.03}`);
+    const navY = bulgeCy + bulgeS*0.18;
+    P.navelSh.setAttribute('cx', cx); P.navelSh.setAttribute('cy', navY+1);
+    P.navelSh.setAttribute('rx', 3.2+belly*0.02); P.navelSh.setAttribute('ry', 4+belly*0.03);
+    P.navel.setAttribute('d', `M${cx},${navY-2.4} q${1.8+belly*0.014},2.6 0,${5+belly*0.028}`);
 
     /* --- 脚 --- */
-    const thigh = 17.5 + wt*26, calf = 12.5 + wt*15, ankleW = 6 + wt*4.5;
-    const legDX = 13 + wt*10, kneeDX = 12.5 + wt*7, ankDX = 11 + wt*5;
+    const thighW = 34 + wt*30, kneeW = 21 + wt*13, calfW = 24 + wt*16, ankW = 11 + wt*5;
+    const legDX = 13.5 + wt*9, kneeDX = 12 + wt*6.5, ankDX = 10.5 + wt*5;
     [[-1,'L'],[1,'R']].forEach(([s,tag]) => {
       const pts = [
-        { x: cx + s*legDX,         y: yHip+4,   w: thigh },
-        { x: cx + s*(legDX*0.94),  y: yKnee-34, w: thigh*0.80 },
-        { x: cx + s*kneeDX,        y: yKnee,    w: calf*1.10 },
-        { x: cx + s*(kneeDX*0.98), y: yKnee+40, w: calf },
-        { x: cx + s*ankDX,         y: yAnkle,   w: ankleW }
+        { x: cx + s*legDX,          y: SK.hip+2,   w: thighW },
+        { x: cx + s*(legDX*0.95),   y: SK.knee-46, w: thighW*0.78 },
+        { x: cx + s*kneeDX,         y: SK.knee,    w: kneeW },
+        { x: cx + s*(kneeDX*1.02),  y: SK.knee+36, w: calfW },
+        { x: cx + s*ankDX,          y: SK.ankle,   w: ankW }
       ];
       P['leg'+tag].setAttribute('d', this._tube(pts));
-      P['legSh'+tag].setAttribute('d', this._tube(pts.map(p => ({ x:p.x - s*p.w*0.42, y:p.y, w:p.w*0.5 }))));
+      P['legSh'+tag].setAttribute('d', this._tube(pts.map(p => ({ x:p.x - s*p.w*0.36, y:p.y, w:p.w*0.42 }))));
+      P['legHi'+tag].setAttribute('d', this._tube(pts.map(p => ({ x:p.x + s*p.w*0.10, y:p.y, w:p.w*0.22 }))));
       const fx = cx + s*ankDX;
       P['shoe'+tag].setAttribute('d',
-        `M${fx-7},${yAnkle-2} q7,-3 13,1 L${fx+7},${yFoot-3} q0,4 -5,4 h-14 q-4,0 -4,-4 Z`);
+        `M${fx-6.5},${SK.ankle-3} q6.5,-3 12,1 L${fx+6},${SK.sole-4} q0,4 -4.5,4 h-13 q-4,0 -4,-4 Z`);
     });
 
-    /* --- 腕（体の輪郭の外側に沿って垂らす） --- */
-    const armTop = 14.5 + wt*12, armMid = 11.5 + wt*9, armEnd = 7 + wt*4;
-    const elbowY = 202, wristY = 262;
-    const shoulderHalf = profAt(132);
+    /* --- 腕 --- */
+    const armTop = 17 + wt*13, armMid = 13.5 + wt*10, armEnd = 9 + wt*5;
+    const elbowY = SK.waist, wristY = SK.crotch;
+    const shoulderHalf = profAt(SK.deltoid);
     const armPts = {};
     [[-1,'L'],[1,'R']].forEach(([s,tag]) => {
       const right = s>0;
-      const swing = Math.sin(this.t*1.45 + (right?0.6:0))*1.5;
-      const natural = profAt(yBust)*0.98;
-      let bulgeX = 0;
-      for (let y=180; y<=250; y+=5) bulgeX = Math.max(bulgeX, halfW(y,right));
-      let out = clamp(bulgeX*0.62, natural, natural + 30);
-      const elX = out + armMid*0.95, wrX = out + armEnd*1.05;
+      const swing = Math.sin(this.t*1.35 + (right?0.6:0))*1.3;
+      const natural = profAt(SK.bust)*0.97;
+      let bx = 0;
+      for (let y=160; y<=245; y+=5) bx = Math.max(bx, halfW(y,right));
+      const out = clamp(bx*0.64, natural, natural+30);
       armPts[tag] = [
-        { x: cx + s*(shoulderHalf + armTop*0.04),                    y: yShoulder+3,     w: armTop },
-        { x: cx + s*Math.max(halfW(172,right)+armMid*1.0, elX*0.88), y: 172,             w: armMid*1.15 },
-        { x: cx + s*elX,       y: elbowY+swing,    w: armMid },
-        { x: cx + s*wrX,       y: wristY+swing,    w: armEnd },
-        { x: cx + s*(wrX+1.5), y: wristY+18+swing, w: armEnd*0.92 }
+        { x: cx + s*(shoulderHalf - armTop*0.42),                    y: SK.shoulder+4,  w: armTop },
+        { x: cx + s*Math.max(halfW(152,right)+armMid*0.55, out*0.9), y: 152,            w: armMid*1.18 },
+        { x: cx + s*(out + armMid*0.42),  y: elbowY+swing,    w: armMid },
+        { x: cx + s*(out + armEnd*0.55),  y: wristY+swing,    w: armEnd },
+        { x: cx + s*(out + armEnd*0.75),  y: wristY+20+swing, w: armEnd*0.92 }
       ];
       P['arm'+tag].setAttribute('d', this._tube(armPts[tag]));
-      P['armSh'+tag].setAttribute('d', this._tube(armPts[tag].map(p => ({ x:p.x - s*p.w*0.45, y:p.y, w:p.w*0.45 }))));
+      P['armSh'+tag].setAttribute('d', this._tube(armPts[tag].map(p => ({ x:p.x - s*p.w*0.38, y:p.y, w:p.w*0.40 }))));
+      // 体に落ちる影（腕と胴が同じ肌色で溶けないように）
+      P['armCast'+tag].setAttribute('d', this._tube(
+        armPts[tag].map(p => ({ x:p.x - s*3.5, y:p.y+3, w:p.w*1.05 }))));
     });
 
-    /* =====================================================
-       服（キャラごとに形が変わる）
-       ===================================================== */
+    /* ===================== 服 ===================== */
     const TOPS = {
-      shirt:  { drop:0,   inset:1,  neck:8,  hem:0 },
-      blouse: { drop:0,   inset:1,  neck:11, hem:2 },
-      tank:   { drop:2.5, inset:9,  neck:13, hem:0 },
-      cami:   { drop:4.5, inset:14, neck:16, hem:0 }
+      shirt:  { drop:0,   inset:1,  neck:16, hem:0 },
+      blouse: { drop:0,   inset:2,  neck:19, hem:2 },
+      tank:   { drop:2.5, inset:9,  neck:21, hem:0 },
+      cami:   { drop:4.5, inset:14, neck:24, hem:0 }
     };
     const T = TOPS[OF.top] || TOPS.blouse;
 
-    // 裾：お腹がせり出すほど短く、中央がめくれ上がる
-    const Wb = (profAt(bulgeCy) + bulgeA)*1.02;        // ふくらみの横半径（実際の体幅に合わせる）
-    const arc = (x) => { const t=(x-cx)/Wb, v=1-t*t; return v<=0 ? 0 : Math.sqrt(v); };
-    const hemBase = yHip + 2 + T.hem - Math.max(0, bulgeA-6)*1.00;
-    const hemRise = Math.min(hemBase-(yUnderBust+6), Math.max(0, bulgeA-6)*1.45);
-    const hemAt = (x) => Math.max(yUnderBust+8, hemBase - hemRise*arc(x));
+    const Wb = bR*1.02;
+    const arc = (x) => { const t=(x-cx)/Wb, v=1-t*t; return v<=0?0:Math.sqrt(v); };
+    const hemBase = SK.hip + 4 + T.hem - Math.max(0, bulgeA-6)*1.00;
+    const hemRise = Math.min(hemBase-(SK.underBust+6), Math.max(0, bulgeA-6)*1.45);
+    const hemAt = (x) => Math.max(SK.underBust+6, hemBase - hemRise*arc(x));
 
-    const yTopStart = yShoulder - 2 + T.drop;
+    const yTopStart = SK.shoulder - 2 + T.drop;
     const colR = [], colL = [];
-    for (let y=yTopStart; y<=hemBase+0.01; y+=4.5){
-      colR.push({ x: cx + halfW(y,true) *1.03, y });
-      colL.push({ x: cx - halfW(y,false)*1.03, y });
+    for (let y=yTopStart; y<=hemBase+0.01; y+=4){
+      colR.push({ x: cx + halfW(y,true) *1.025, y });
+      colL.push({ x: cx - halfW(y,false)*1.025, y });
     }
     const xTopR = colR[0].x, xTopL = colL[0].x;
-    const xHemR = colR[colR.length-1].x, xHemL = colL[colL.length-1].x;
     const hemPts = [];
-    for (let x=xHemL; x<=xHemR+0.01; x+=6) hemPts.push({ x, y: hemAt(x) });
-    P.top.setAttribute('d', smoothClosedPath(
-      colL.concat(
-        hemPts,
-        colR.slice().reverse(),
-        [{ x: xTopR - T.inset, y: yTopStart-1 },
-         { x: cx,              y: yShoulder + T.neck },
-         { x: xTopL + T.inset, y: yTopStart-1 }]
-      )
-    ));
+    for (let x=colL[colL.length-1].x; x<=colR[colR.length-1].x+0.01; x+=6) hemPts.push({ x, y: hemAt(x) });
+    P.top.setAttribute('d', smoothClosedPath(colL.concat(
+      hemPts, colR.slice().reverse(),
+      [{ x: xTopR - T.inset, y: yTopStart-1 },
+       { x: cx,              y: SK.shoulder + T.neck },
+       { x: xTopL + T.inset, y: yTopStart-1 }]
+    )));
     P.topSh.setAttribute('d', smoothOpenPath(hemPts.map(p => ({ x:p.x, y:p.y+3 }))));
+    let tf = '';
+    for (let i=-1;i<=1;i+=2){
+      tf += `M${cx+i*profAt(SK.underBust)*0.55},${SK.underBust-6} q${i*5},12 ${i*2},24 `;
+    }
+    P.topFold.setAttribute('d', tf);
 
-    // 袖
     const sleeveCut = { 0:0, 1:2, 2:5 }[OF.sleeve] || 0;
     ['L','R'].forEach(tag => {
-      const node = P['sleeve'+tag];
-      if (!sleeveCut){ node.setAttribute('opacity', 0); return; }
-      node.setAttribute('opacity', 1);
-      node.setAttribute('d', this._tube(
-        armPts[tag].slice(0, sleeveCut).map((p,i) => ({ x:p.x, y:p.y, w:p.w*(1.16 - i*0.02) }))
-      ));
+      const s = tag==='L' ? -1 : 1;
+      if (!sleeveCut){ P['sleeve'+tag].setAttribute('opacity',0); P['sleeveSh'+tag].setAttribute('opacity',0); return; }
+      P['sleeve'+tag].setAttribute('opacity',1); P['sleeveSh'+tag].setAttribute('opacity',1);
+      const sp = armPts[tag].slice(0, sleeveCut).map((p,i) => ({ x:p.x, y:p.y, w:p.w*(1.18 - i*0.02) }));
+      P['sleeve'+tag].setAttribute('d', this._tube(sp));
+      P['sleeveSh'+tag].setAttribute('d', this._tube(sp.map(p => ({ x:p.x - s*p.w*0.34, y:p.y, w:p.w*0.36 }))));
     });
 
-    // ボトムス
-    const hipW = profAt(yHip)*1.04;
-    const beltY = yHip - 4;
-    const beltDrop = Math.min(yCrotch+4-beltY, Math.max(0, bulgeA-6)*1.20);
+    const hipW = profAt(SK.hip)*1.04;
+    const beltY = SK.hip - 4;
+    const beltDrop = Math.min(SK.crotch+4-beltY, Math.max(0, bulgeA-6)*1.20);
     const beltAt = (x) => beltY + beltDrop*arc(x);
     const topEdge = [];
     for (let x=cx-hipW; x<=cx+hipW+0.01; x+=6) topEdge.push({ x, y: beltAt(x) });
 
-    let bottomPts, lines = '';
+    let bottomPts, folds = '';
     if (OF.bottom === 'shorts'){
-      const lw = thigh*0.62, sb = yCrotch + 26 + wt*8;
+      const lw = thighW*0.58, sb = SK.crotch + 24 + wt*8;
       bottomPts = topEdge.concat([
-        { x: cx+hipW,              y: beltAt(cx+hipW)+18 },
-        { x: cx+legDX+lw*1.05,     y: sb-14 },
-        { x: cx+legDX+lw,          y: sb },
-        { x: cx+legDX-lw*0.86,     y: sb-1 },
-        { x: cx+1.5,               y: yCrotch+15 },
-        { x: cx-1.5,               y: yCrotch+15 },
-        { x: cx-legDX+lw*0.86,     y: sb-1 },
-        { x: cx-legDX-lw,          y: sb },
-        { x: cx-legDX-lw*1.05,     y: sb-14 },
-        { x: cx-hipW,              y: beltAt(cx-hipW)+18 }
+        { x: cx+hipW,           y: beltAt(cx+hipW)+18 },
+        { x: cx+legDX+lw*1.02,  y: sb-14 },
+        { x: cx+legDX+lw*0.96,  y: sb },
+        { x: cx+legDX-lw*0.84,  y: sb-1 },
+        { x: cx+1.5,            y: SK.crotch+13 },
+        { x: cx-1.5,            y: SK.crotch+13 },
+        { x: cx-legDX+lw*0.84,  y: sb-1 },
+        { x: cx-legDX-lw*0.96,  y: sb },
+        { x: cx-legDX-lw*1.02,  y: sb-14 },
+        { x: cx-hipW,           y: beltAt(cx-hipW)+18 }
       ]);
+      folds = `M${cx-legDX*0.4},${SK.crotch+2} q-4,8 -2,14 M${cx+legDX*0.4},${SK.crotch+2} q4,8 2,14`;
     } else {
       const spec = {
-        skirt:     { flare:1.26, len:yCrotch+46 },
-        longskirt: { flare:1.14, len:yKnee+14 },
-        pleated:   { flare:1.22, len:yCrotch+58 },
-        pencil:    { flare:0.99, len:yKnee-10 }
-      }[OF.bottom] || { flare:1.26, len:yCrotch+46 };
-      const F = hipW*spec.flare + 6, L = spec.len;
+        skirt:     { flare:1.24, len:SK.crotch+44 },
+        longskirt: { flare:1.12, len:SK.knee+12 },
+        pleated:   { flare:1.20, len:SK.crotch+56 },
+        pencil:    { flare:0.99, len:SK.knee-12 }
+      }[OF.bottom] || { flare:1.24, len:SK.crotch+44 };
+      const F = hipW*spec.flare + 5, L = spec.len;
       bottomPts = topEdge.concat([
-        { x: cx+hipW+2,   y: beltAt(cx+hipW)+14 },
-        { x: cx+F,        y: L-10 },
-        { x: cx+F*0.88,   y: L },
-        { x: cx,          y: L+7 },
-        { x: cx-F*0.88,   y: L },
-        { x: cx-F,        y: L-10 },
-        { x: cx-hipW-2,   y: beltAt(cx-hipW)+14 }
+        { x: cx+hipW+2,  y: beltAt(cx+hipW)+14 },
+        { x: cx+F,       y: L-10 },
+        { x: cx+F*0.9,   y: L },
+        { x: cx,         y: L+6 },
+        { x: cx-F*0.9,   y: L },
+        { x: cx-F,       y: L-10 },
+        { x: cx-hipW-2,  y: beltAt(cx-hipW)+14 }
       ]);
-      if (OF.bottom === 'pleated'){
-        for (let i=-2;i<=2;i++){
-          const xt = cx + i*hipW*0.42, xb = cx + i*F*0.46;
-          lines += `M${xt},${beltAt(xt)+8} L${xb},${L-4} `;
-        }
+      const n = OF.bottom==='pleated' ? 3 : 2;
+      for (let i=-n;i<=n;i++){
+        if (!i && OF.bottom!=='pleated') continue;
+        const xt = cx + i*hipW*0.36, xb = cx + i*F*0.42;
+        folds += `M${xt},${beltAt(xt)+10} L${xb},${L-5} `;
       }
     }
     P.skirt.setAttribute('d', smoothClosedPath(bottomPts));
-    P.bottomLines.setAttribute('d', lines);
-    const bl = bottomPts[bottomPts.length-4];
+    P.skirtFold.setAttribute('d', folds);
+    const blast = bottomPts[bottomPts.length-4];
     P.skirtSh.setAttribute('d',
-      `M${cx-hipW},${bl.y-24} Q${cx},${bl.y-6} ${cx+hipW},${bl.y-24} L${cx+hipW},${bl.y+6} L${cx-hipW},${bl.y+6} Z`);
-    P.skirtSh.setAttribute('opacity', .28);
+      `M${cx-hipW},${blast.y-26} Q${cx},${blast.y-6} ${cx+hipW},${blast.y-26} L${cx+hipW},${blast.y+6} L${cx-hipW},${blast.y+6} Z`);
+    P.skirtSh.setAttribute('opacity', .3);
 
-    // 襟もと
+    const nk = SK.shoulder + T.neck;
     if (OF.top === 'shirt'){
-      P.deco.setAttribute('d',
-        `M${cx-11},${yShoulder+T.neck-7} L${cx-3},${yShoulder+T.neck+6} L${cx+3},${yShoulder+T.neck+6} L${cx+11},${yShoulder+T.neck-7}`);
+      P.deco.setAttribute('d', `M${cx-12},${nk-9} L${cx-3},${nk+4} L${cx+3},${nk+4} L${cx+12},${nk-9}`);
     } else if (OF.top === 'blouse'){
-      P.deco.setAttribute('d',
-        `M${cx-11},${yShoulder+T.neck-5} Q${cx},${yShoulder+T.neck+6} ${cx+11},${yShoulder+T.neck-5}`+
-        `M${cx},${yShoulder+T.neck+3} l-5,7 h10 Z`);
+      P.deco.setAttribute('d', `M${cx-11},${nk-6} Q${cx},${nk+4} ${cx+11},${nk-6}`);
     } else {
       P.deco.setAttribute('d', '');
     }
 
-    // 上着（エプロン／白衣／カーディガン）
     const over = OF.over;
     if (over === 'apron'){
-      const aw = profAt(yBust)*0.30;
-      const bibBot = Math.min(hemAt(cx)-3, yWaist);
-      const panelTop = beltAt(cx) + 4;
-      const panelBot = (OF.bottom==='shorts' ? yCrotch+34 : yCrotch+40);
-      const pw = hipW*0.86;
+      const pTop = beltAt(cx) + 4;
+      const pBot = (OF.bottom==='shorts' ? SK.crotch+32 : SK.crotch+38);
+      const pw = hipW*0.84;
       P.acc.setAttribute('d',
-        `M${cx-aw},${yBust-12} Q${cx},${yBust-19} ${cx+aw},${yBust-12} `+
-        `L${cx+aw*1.06},${bibBot-4} Q${cx},${bibBot+3} ${cx-aw*1.06},${bibBot-4} Z `+
-        `M${cx-pw},${panelTop+6} Q${cx},${panelTop-3} ${cx+pw},${panelTop+6} `+
-        `L${cx+pw*1.02},${panelBot} Q${cx},${panelBot+7} ${cx-pw*1.02},${panelBot} Z`);
-      P.acc.setAttribute('fill', 'rgba(255,255,255,.80)');
-      P.acc.setAttribute('opacity', .78);
+        `M${cx-pw},${pTop+6} Q${cx},${pTop-4} ${cx+pw},${pTop+6} `+
+        `L${cx+pw*1.03},${pBot} Q${cx},${pBot+8} ${cx-pw*1.03},${pBot} Z`);
+      P.acc.setAttribute('fill', 'rgba(250,248,244,.9)');
+      P.acc.setAttribute('opacity', .9);
     } else if (over === 'coat' || over === 'cardigan'){
-      const bot = over==='coat' ? yCrotch+26 : yHip+8;
+      const bot = over==='coat' ? SK.crotch+26 : SK.hip+8;
       let d = '';
       for (const sd of [-1,1]){
         const outer = [], inner = [];
-        for (let y=yShoulder-1; y<=bot+0.01; y+=5){
-          const hwv = halfW(Math.min(y, yBottom), sd>0);
-          outer.push({ x: cx + sd*hwv*1.05,        y });
-          inner.push({ x: cx + sd*(hwv*0.36 + 4),  y });
+        for (let y=SK.shoulder-1; y<=bot+0.01; y+=5){
+          const hv = halfW(Math.min(y, SK.torsoEnd), sd>0);
+          outer.push({ x: cx + sd*hv*1.05,       y });
+          inner.push({ x: cx + sd*(hv*0.36 + 4), y });
         }
         d += smoothClosedPath(outer.concat(inner.reverse()));
       }
       P.acc.setAttribute('d', d);
       P.acc.setAttribute('fill', over==='coat'
-        ? 'rgba(250,250,255,.95)'
-        : (this.char ? mix(this.char.palette.cloth, '#ffffff', .12) : '#ddd'));
-      P.acc.setAttribute('opacity', over==='coat' ? .95 : .9);
+        ? 'rgba(248,247,244,.96)'
+        : (this.char ? mix(this.char.palette.cloth,'#000000',.12) : '#999'));
+      P.acc.setAttribute('opacity', over==='coat' ? .96 : .92);
     } else {
       P.acc.setAttribute('opacity', 0);
     }
 
     /* --- 首・頭 --- */
-    const hrx = 22.5 + wt*1.7, hry = 28.5 + wt*1.3;
-    const hy = 74 + bob + sq*4;
+    const hrx = SK.headRx + wt*1.4, hry = SK.headRy + wt*1.1;
+    const hy = SK.headCy + bob + sq*4;
+    const nw = 10.5 + wt*2;
     P.neck.setAttribute('d',
-      `M${cx-8.5},${hy+hry*0.62} q8.5,5 17,0 L${cx+11},${yNeck+6} q-11,5 -22,0 Z`);
+      `M${cx-nw},${hy+hry*0.60} q${nw},4 ${nw*2},0 L${cx+nw+2.5},${SK.neckBase+8} q${-(nw+2.5)},5 ${-(nw*2+5)},0 Z`);
     P.neckSh.setAttribute('d',
-      `M${cx-10},${hy+hry*0.66} q10,9 20,0 q-2,9 -10,9 q-8,0 -10,-9 Z`);
-    this._bodyHalf = profAt(yBust);
-    this._head(cx, hy, hrx, hry, mood, Math.max(belly,gas));
+      `M${cx-nw-1},${hy+hry*0.62} q${nw+1},10 ${(nw+1)*2},0 q-2,10 ${-(nw+1)},10 q${-(nw-1)},0 ${-(nw+1)},-10 Z`);
+
+    this._bodyHalf = profAt(SK.bust);
+    this._head(cx, hy, hrx, hry, Math.max(belly,gas));
     if (this.char && this.char.accessory === 'glasses'){
-      P.glasses.setAttribute('transform', `translate(${cx},${hy+hry*0.18})`);
+      P.glasses.setAttribute('transform', `translate(${cx},${hy+hry*0.06})`);
     }
 
     /* --- エフェクト --- */
     const wob = this._wobble||0;
-    P.wobL.setAttribute('d', `M${cx-halfW(bulgeCy,false)-9},${bulgeCy-7} q-6,7 0,14`);
-    P.wobR.setAttribute('d', `M${cx+halfW(bulgeCy,true)+9},${bulgeCy-7} q6,7 0,14`);
-    P.wobL.setAttribute('opacity', wob*.9); P.wobR.setAttribute('opacity', wob*.9);
+    P.wobL.setAttribute('d', `M${cx-halfW(bulgeCy,false)-8},${bulgeCy-6} q-5,6 0,12`);
+    P.wobR.setAttribute('d', `M${cx+halfW(bulgeCy,true)+8},${bulgeCy-6} q5,6 0,12`);
+    P.wobL.setAttribute('opacity', wob*.85); P.wobR.setAttribute('opacity', wob*.85);
 
     const strain = Math.max(belly, gas);
     P.sweat.setAttribute('opacity', strain>58 ? clamp((strain-58)/28,0,1) : 0);
-    P.sweat.setAttribute('transform', `translate(${cx+hrx*0.85},${hy-hry*0.35})`);
-
-    P.shadow.setAttribute('rx', 44 + bulgeA*0.42 + wt*14);
+    P.sweat.setAttribute('transform', `translate(${cx+hrx*0.86},${hy-hry*0.30})`);
+    P.shadow.setAttribute('rx', 40 + bulgeA*0.40 + wt*14);
   }
 
-  /* 太さの変わるチューブ（手足） */
+  /* 太さの変わるチューブ */
   _tube(pts){
-    const rightSide = [], leftSide = [];
+    const R = [], L = [];
     for (let i=0;i<pts.length;i++){
       const p = pts[i];
       const prev = pts[Math.max(0,i-1)], next = pts[Math.min(pts.length-1,i+1)];
       const dx = next.x-prev.x, dy = next.y-prev.y;
       const len = Math.hypot(dx,dy)||1;
       const nx = -dy/len, ny = dx/len;
-      rightSide.push({ x:p.x+nx*p.w/2, y:p.y+ny*p.w/2 });
-      leftSide .push({ x:p.x-nx*p.w/2, y:p.y-ny*p.w/2 });
+      R.push({ x:p.x+nx*p.w/2, y:p.y+ny*p.w/2 });
+      L.push({ x:p.x-nx*p.w/2, y:p.y-ny*p.w/2 });
     }
     const last = pts[pts.length-1], first = pts[0];
-    return smoothClosedPath(rightSide.concat(
-      [{ x:last.x, y:last.y+last.w*0.42 }],
-      leftSide.reverse(),
-      [{ x:first.x, y:first.y-first.w*0.30 }]
+    return smoothClosedPath(R.concat(
+      [{ x:last.x, y:last.y+last.w*0.40 }],
+      L.reverse(),
+      [{ x:first.x, y:first.y-first.w*0.28 }]
     ));
+  }
+
+  /* 二次ベジェに沿った先細りの帯（髪の束など） */
+  _qtube(p0, pc, p1, w0, w1, n){
+    n = n || 7;
+    const pts = [];
+    for (let i=0;i<=n;i++){
+      const t=i/n, mt=1-t;
+      pts.push({
+        x: mt*mt*p0.x + 2*mt*t*pc.x + t*t*p1.x,
+        y: mt*mt*p0.y + 2*mt*t*pc.y + t*t*p1.y,
+        w: lerp(w0, w1, t)
+      });
+    }
+    return this._tube(pts);
   }
 
   /* =========================================================
      顔
      ========================================================= */
-  _head(cx, cy, rx, ry, mood, strain){
-    const P = this.parts;
-    let e = this.expr;
-    if (e === 'auto' || !e){
-      e = strain>=88 ? 'strain' : strain>=62 ? 'shy' : mood>=78 ? 'happy' : 'normal';
-    }
+  _head(cx, cy, rx, ry, strain){
+    const P = this.parts, ep = this.ep;
 
+    /* 輪郭：頬骨から顎へ細くなる形 */
     const faceD =
-      `M${cx-rx},${cy-ry*0.08} `+
-      `C${cx-rx*1.02},${cy-ry*1.20} ${cx+rx*1.02},${cy-ry*1.20} ${cx+rx},${cy-ry*0.08} `+
-      `C${cx+rx*0.97},${cy+ry*0.40} ${cx+rx*0.52},${cy+ry*0.84} ${cx},${cy+ry} `+
-      `C${cx-rx*0.52},${cy+ry*0.84} ${cx-rx*0.97},${cy+ry*0.40} ${cx-rx},${cy-ry*0.08} Z`;
+      `M${cx-rx},${cy-ry*0.16} `+
+      `C${cx-rx*1.00},${cy-ry*1.12} ${cx+rx*1.00},${cy-ry*1.12} ${cx+rx},${cy-ry*0.16} `+
+      `C${cx+rx*0.99},${cy+ry*0.18} ${cx+rx*0.86},${cy+ry*0.52} ${cx+rx*0.56},${cy+ry*0.80} `+
+      `C${cx+rx*0.36},${cy+ry*0.98} ${cx+rx*0.16},${cy+ry*1.04} ${cx},${cy+ry*1.05} `+
+      `C${cx-rx*0.16},${cy+ry*1.04} ${cx-rx*0.36},${cy+ry*0.98} ${cx-rx*0.56},${cy+ry*0.80} `+
+      `C${cx-rx*0.86},${cy+ry*0.52} ${cx-rx*0.99},${cy+ry*0.18} ${cx-rx},${cy-ry*0.16} Z`;
     P.face.setAttribute('d', faceD);
-    this.clipHeadPath.setAttribute('d', faceD);
-    P.earL.setAttribute('d', `M${cx-rx*0.96},${cy+ry*0.02} q-5,-2 -5,5 q0,7 5,7 Z`);
-    P.earR.setAttribute('d', `M${cx+rx*0.96},${cy+ry*0.02} q5,-2 5,5 q0,7 -5,7 Z`);
-    P.cheekSh.setAttribute('d',
-      `M${cx-rx*0.86},${cy+ry*0.18} Q${cx-rx*0.5},${cy+ry*0.86} ${cx},${cy+ry*0.98}`+
-      `M${cx+rx*0.86},${cy+ry*0.18} Q${cx+rx*0.5},${cy+ry*0.86} ${cx},${cy+ry*0.98}`);
+    this.clipHead.setAttribute('d', faceD);
+    P.earL.setAttribute('d', `M${cx-rx*0.97},${cy-ry*0.06} q-5.5,-1.5 -5,5 q.5,6.5 5.5,7.5 Z`);
+    P.earR.setAttribute('d', `M${cx+rx*0.97},${cy-ry*0.06} q5.5,-1.5 5,5 q-.5,6.5 -5.5,7.5 Z`);
 
-    // 目
-    const eyDX = rx*0.53, eyY = cy+ry*0.16, ew = rx*0.34, eh = ew*0.60;
-    const blink = (Math.sin(this.t*0.9) > 0.988) ? 0.1 : 1;
+    /* 面の陰影 */
+    P.foreHi.setAttribute('cx', cx-rx*0.10); P.foreHi.setAttribute('cy', cy-ry*0.62);
+    P.foreHi.setAttribute('rx', rx*0.52);    P.foreHi.setAttribute('ry', ry*0.30);
+    P.templeL.setAttribute('cx', cx-rx*0.86); P.templeL.setAttribute('cy', cy-ry*0.30);
+    P.templeL.setAttribute('rx', rx*0.24);    P.templeL.setAttribute('ry', ry*0.40);
+    P.templeR.setAttribute('cx', cx+rx*0.86); P.templeR.setAttribute('cy', cy-ry*0.30);
+    P.templeR.setAttribute('rx', rx*0.24);    P.templeR.setAttribute('ry', ry*0.40);
+    P.jawSh.setAttribute('d',
+      `M${cx-rx*0.80},${cy+ry*0.34} Q${cx-rx*0.46},${cy+ry*0.96} ${cx},${cy+ry*1.02} `+
+      `Q${cx+rx*0.46},${cy+ry*0.96} ${cx+rx*0.80},${cy+ry*0.34}`);
+    P.chinHi.setAttribute('cx', cx); P.chinHi.setAttribute('cy', cy+ry*0.80);
+    P.chinHi.setAttribute('rx', rx*0.17); P.chinHi.setAttribute('ry', ry*0.10);
+    P.faceGrain.setAttribute('x', cx-rx-4); P.faceGrain.setAttribute('y', cy-ry-6);
+    P.faceGrain.setAttribute('width', rx*2+8); P.faceGrain.setAttribute('height', ry*2.3);
 
-    const drawEye = (s) => {
-      const R = s>0;
+    const flush = clamp(ep.flush + Math.max(0, strain-30)/100*0.55, 0, 0.95);
+    ['L','R'].forEach(t => {
+      const s = t==='L' ? -1 : 1;
+      P['cheek'+t].setAttribute('cx', cx + s*rx*0.52);
+      P['cheek'+t].setAttribute('cy', cy + ry*0.26);
+      P['cheek'+t].setAttribute('rx', rx*0.32);
+      P['cheek'+t].setAttribute('ry', ry*0.17);
+      P['cheek'+t].setAttribute('opacity', (0.10 + flush*0.40).toFixed(2));
+    });
+
+    /* 鼻 */
+    const nY = cy + ry*0.40;
+    P.noseSh.setAttribute('d',
+      `M${cx-2.4},${cy-ry*0.06} Q${cx-4.2},${nY-2} ${cx-3.6},${nY+3.4} `+
+      `Q${cx-1},${nY+5.2} ${cx+2.6},${nY+3.6} Q${cx+1.4},${nY-4} ${cx-2.4},${cy-ry*0.06} Z`);
+    P.noseHi.setAttribute('cx', cx+0.6); P.noseHi.setAttribute('cy', nY+0.6);
+    P.noseHi.setAttribute('rx', 2.0);    P.noseHi.setAttribute('ry', 2.6);
+    P.nostrilL.setAttribute('d', `M${cx-3.6},${nY+3.6} q1.6,-1.6 2.9,-.2 q-1.4,1.5 -2.9,.2 Z`);
+    P.nostrilR.setAttribute('d', `M${cx+3.6},${nY+3.6} q-1.6,-1.6 -2.9,-.2 q1.4,1.5 2.9,.2 Z`);
+    P.philtrum.setAttribute('d', `M${cx-0.8},${nY+5} L${cx-0.8},${nY+8.4} M${cx+0.8},${nY+5} L${cx+0.8},${nY+8.4}`);
+
+    /* 目 */
+    const eyY = cy + ry*0.03;
+    const eyDX = rx*0.50;
+    const ew = rx*0.235;
+    const openV = clamp(ep.open * this.blink, 0.04, 1.4);
+    const eh = ew*0.56*openV;
+
+    ['L','R'].forEach(t => {
+      const s = t==='L' ? -1 : 1;
       const x = cx + s*eyDX;
-      const eyeW = R ? P.eyeWR : P.eyeWL;
-      const clip = R ? this.clipEyeRPath : this.clipEyeLPath;
-      const irisG= R ? P.irisR : P.irisL;
-      const iris = R ? P.iR : P.iL, ring = R ? P.iRd : P.iLd;
-      const pup  = R ? P.pR : P.pL, hi = R ? P.hR : P.hL, hi2 = R ? P.hR2 : P.hL2;
-      const lash = R ? P.lashR : P.lashL, lid = R ? P.lidR : P.lidL;
-      const brow = R ? P.browR : P.browL;
+      const inner = x - s*ew, outer = x + s*ew;
 
-      let h = eh * blink;
-      if (e==='surprise') h = eh*1.25;
-      if (e==='shy')      h = eh*0.62;
+      const scl =
+        `M${inner},${eyY+eh*0.16} `+
+        `C${x - s*ew*0.42},${eyY-eh*1.55} ${x + s*ew*0.45},${eyY-eh*1.40} ${outer},${eyY-eh*0.30} `+
+        `C${x + s*ew*0.40},${eyY+eh*1.25} ${x - s*ew*0.45},${eyY+eh*1.30} ${inner},${eyY+eh*0.16} Z`;
+      P['sclera'+t].setAttribute('d', scl);
+      this['clipEye'+t].setAttribute('d', scl);
 
-      if (e==='happy' || e==='strain'){
-        eyeW.setAttribute('d','');
-        irisG.setAttribute('opacity',0);
-        lid.setAttribute('opacity',0);
-        lash.setAttribute('opacity',1);
-        lash.setAttribute('stroke-width', 2.8);
-        lash.setAttribute('d', e==='happy'
-          ? `M${x-ew},${eyY+h*0.6} q${ew},${-h*2.4} ${ew*2},0`
-          : `M${x-ew},${eyY-h*0.5} q${ew},${h*2.0} ${ew*2},0`);
-      } else {
-        irisG.setAttribute('opacity',1);
-        lash.setAttribute('opacity',1);
-        lash.setAttribute('stroke-width', 2.6);
-        const eyeD =
-          `M${x-ew},${eyY+h*0.10} `+
-          `C${x-ew*0.55},${eyY-h*1.5} ${x+ew*0.55},${eyY-h*1.45} ${x+ew},${eyY-h*0.25} `+
-          `C${x+ew*0.5},${eyY+h*1.25} ${x-ew*0.5},${eyY+h*1.3} ${x-ew},${eyY+h*0.10} Z`;
-        eyeW.setAttribute('d', eyeD);
-        clip.setAttribute('d', eyeD);
+      const ir = ew*0.52;
+      [P['iris'+t], P['limb'+t]].forEach(n => {
+        n.setAttribute('cx', x); n.setAttribute('cy', eyY+eh*0.06); n.setAttribute('r', ir);
+      });
+      P['pupil'+t].setAttribute('cx', x); P['pupil'+t].setAttribute('cy', eyY+eh*0.06);
+      P['pupil'+t].setAttribute('r', ir*0.40);
+      P['cat'+t].setAttribute('cx', x-ir*0.34); P['cat'+t].setAttribute('cy', eyY-ir*0.34);
+      P['cat'+t].setAttribute('r', ir*0.26);
+      P['cat2'+t].setAttribute('cx', x+ir*0.32); P['cat2'+t].setAttribute('cy', eyY+ir*0.34);
+      P['cat2'+t].setAttribute('r', ir*0.14);
+      P['lidSh'+t].setAttribute('d',
+        `M${inner},${eyY-eh*0.2} C${x - s*ew*0.4},${eyY-eh*1.5} ${x + s*ew*0.45},${eyY-eh*1.35} ${outer},${eyY-eh*0.3}`);
+      P['irisG'+t].setAttribute('opacity', openV>0.12 ? 1 : 0);
 
-        const ir = Math.min(ew*0.55, h*1.15);
-        [iris,ring].forEach(n => { n.setAttribute('cx',x); n.setAttribute('cy',eyY); n.setAttribute('r',ir); });
-        pup.setAttribute('cx',x); pup.setAttribute('cy',eyY);
-        pup.setAttribute('r', ir*(e==='surprise'?0.30:0.42));
-        hi.setAttribute('cx', x-ir*0.38); hi.setAttribute('cy', eyY-ir*0.42); hi.setAttribute('r', ir*0.30);
-        hi2.setAttribute('cx', x+ir*0.34); hi2.setAttribute('cy', eyY+ir*0.36); hi2.setAttribute('r', ir*0.17);
+      P['lash'+t].setAttribute('d', this._qtube(
+        { x:inner, y:eyY+eh*0.10 },
+        { x:x, y:eyY-eh*1.75 },
+        { x:outer + s*1.6, y:eyY-eh*0.42 },
+        1.3, 3.0, 6));
+      P['lower'+t].setAttribute('d',
+        `M${x - s*ew*0.62},${eyY+eh*1.10} C${x - s*ew*0.2},${eyY+eh*1.45} ${x + s*ew*0.3},${eyY+eh*1.35} ${x + s*ew*0.72},${eyY+eh*0.75}`);
+      P['crease'+t].setAttribute('d',
+        `M${x - s*ew*0.78},${eyY-eh*1.9-1.6} C${x - s*ew*0.2},${eyY-eh*2.7-1.6} ${x + s*ew*0.4},${eyY-eh*2.5-1.4} ${x + s*ew*0.88},${eyY-eh*1.5-1.2}`);
 
-        lash.setAttribute('d',
-          `M${x-ew*1.04},${eyY+h*0.06} C${x-ew*0.55},${eyY-h*1.6} ${x+ew*0.6},${eyY-h*1.55} ${x+ew*1.10},${eyY-h*0.42}`);
-        lid.setAttribute('opacity',.8);
-        lid.setAttribute('d',
-          `M${x-ew*0.75},${eyY+h*0.95} C${x-ew*0.3},${eyY+h*1.35} ${x+ew*0.3},${eyY+h*1.3} ${x+ew*0.8},${eyY+h*0.75}`);
-      }
+      const bY = eyY - ry*0.20 - ep.browUp*3.2;
+      P['brow'+t].setAttribute('d', this._qtube(
+        { x:x - s*ew*1.05 + s*ep.browIn*2.2, y:bY + ep.browIn*2.6 },
+        { x:x + s*ew*0.15, y:bY - 3.4 - ep.browUp*1.6 },
+        { x:x + s*ew*1.30, y:bY + 1.4 },
+        2.9, 0.9, 7));
+    });
 
-      const by = eyY - eh*2.2;
-      if (e==='strain'){
-        brow.setAttribute('d', `M${x-ew*1.1},${by-1} Q${x},${by+4} ${x+ew*1.1},${by+3}`);
-      } else if (e==='shy'){
-        brow.setAttribute('d', `M${x-ew*1.1},${by+3} Q${x},${by-2} ${x+ew*1.1},${by+1}`);
-      } else {
-        brow.setAttribute('d', `M${x-ew*1.1},${by+2} Q${x},${by-3.5} ${x+ew*1.1},${by+0.5}`);
-      }
-    };
-    drawEye(-1); drawEye(1);
-
-    const ny = cy+ry*0.46;
-    P.nose.setAttribute('d', `M${cx+1.5},${ny-3} q1.6,4 -2.4,5`);
-
-    const my = cy+ry*0.70, mw = rx*0.20;
-    if (e==='happy'){
-      P.mouth.setAttribute('d', `M${cx-mw},${my-1} q${mw},5.5 ${mw*2},-1`);
-      P.lip.setAttribute('d', `M${cx-mw},${my-1} q${mw},5.5 ${mw*2},-1 q${-mw},2.6 ${-mw*2},1Z`);
-    } else if (e==='surprise'){
-      P.mouth.setAttribute('d', `M${cx-mw*0.6},${my-2} a${mw*0.6},${mw*0.85} 0 1 0 ${mw*1.2},0 a${mw*0.6},${mw*0.85} 0 1 0 ${-mw*1.2},0`);
-      P.lip.setAttribute('d','');
-    } else if (e==='strain'){
-      P.mouth.setAttribute('d', `M${cx-mw},${my} q${mw*0.5},-4 ${mw},0 q${mw*0.5},4 ${mw},0`);
-      P.lip.setAttribute('d','');
-    } else if (e==='shy'){
-      P.mouth.setAttribute('d', `M${cx-mw*0.55},${my-1} q${mw*0.55},3.5 ${mw*1.1},-0.5`);
-      P.lip.setAttribute('d','');
-    } else {
-      P.mouth.setAttribute('d', `M${cx-mw*0.65},${my-1} q${mw*0.65},3 ${mw*1.3},-0.5`);
-      P.lip.setAttribute('d', `M${cx-mw*0.65},${my-1} q${mw*0.65},3 ${mw*1.3},-0.5 q${-mw*0.65},1.8 ${-mw*1.3},0.4Z`);
-    }
-
-    const blushA = 0.18 + Math.max(0, strain-28)/100*0.8 + (mood>=80?0.1:0);
-    P.blushL.setAttribute('cx', cx-rx*0.60); P.blushL.setAttribute('cy', cy+ry*0.40);
-    P.blushR.setAttribute('cx', cx+rx*0.60); P.blushR.setAttribute('cy', cy+ry*0.40);
-    P.blushL.setAttribute('opacity', clamp(blushA,0,.8)); P.blushR.setAttribute('opacity', clamp(blushA,0,.8));
+    /* 口 */
+    const mY = cy + ry*0.68;
+    const mw = rx*0.30;
+    const curve = ep.mCurve, open = ep.mOpen*6;
+    const cornerY = mY - curve*2.6;
+    const lipTop  = mY - 2.2;
+    P.lipUp.setAttribute('d',
+      `M${cx-mw},${cornerY} Q${cx-mw*0.52},${lipTop-1.8} ${cx-mw*0.16},${lipTop-0.4} `+
+      `Q${cx},${lipTop-1.5} ${cx+mw*0.16},${lipTop-0.4} Q${cx+mw*0.52},${lipTop-1.8} ${cx+mw},${cornerY} `+
+      `Q${cx},${mY+0.6} ${cx-mw},${cornerY} Z`);
+    P.mouthGap.setAttribute('d', open>0.7
+      ? `M${cx-mw*0.72},${mY-0.4} Q${cx},${mY-1.4+open*0.3} ${cx+mw*0.72},${mY-0.4} Q${cx},${mY+open} ${cx-mw*0.72},${mY-0.4} Z`
+      : '');
+    P.lipLow.setAttribute('d',
+      `M${cx-mw},${cornerY} Q${cx},${mY+0.4+open} ${cx+mw},${cornerY} `+
+      `Q${cx},${mY+3.4+open*1.15} ${cx-mw},${cornerY} Z`);
+    P.lipLine.setAttribute('d',
+      `M${cx-mw},${cornerY} Q${cx-mw*0.45},${mY+0.2} ${cx},${mY+0.1} Q${cx+mw*0.45},${mY+0.2} ${cx+mw},${cornerY}`);
+    P.lipHi.setAttribute('cx', cx-mw*0.22); P.lipHi.setAttribute('cy', mY+2.0+open*0.7);
+    P.lipHi.setAttribute('rx', mw*0.30); P.lipHi.setAttribute('ry', 0.9);
+    P.mouthSh.setAttribute('d',
+      `M${cx-mw*1.1},${mY+3.6+open} Q${cx},${mY+7.4+open*1.3} ${cx+mw*1.1},${mY+3.6+open} `+
+      `Q${cx},${mY+4.6+open} ${cx-mw*1.1},${mY+3.6+open} Z`);
 
     this._hair(cx, cy, rx, ry);
   }
 
   /* =========================================================
-     髪
+     髪（束を重ねて描く）
      ========================================================= */
   _hair(cx, cy, rx, ry){
     const P = this.parts;
     const style = this.char ? this.char.hairStyle : 'bob';
-    const sway = Math.sin(this.t*1.1)*2.2;
-    const HR = rx*1.10, HT = cy - ry*1.16;
+    const sway = Math.sin(this.t*1.05)*1.8;
+    const HR = rx*1.07, TOP = cy - ry*1.22;
     let back = '', front = '', side = '';
 
+    /* 頭部を覆う地毛 */
     front =
-      `M${cx-HR*1.02},${cy+ry*0.22} `+
-      `C${cx-HR*1.06},${cy-ry*1.30} ${cx+HR*1.06},${cy-ry*1.30} ${cx+HR*1.02},${cy+ry*0.22} `+
-      `C${cx+HR*0.94},${cy-ry*0.16} ${cx+HR*0.70},${cy+ry*0.06} ${cx+HR*0.46},${cy-ry*0.30} `+
-      `C${cx+HR*0.26},${cy+ry*0.16} ${cx-HR*0.02},${cy+ry*0.10} ${cx-HR*0.20},${cy-ry*0.34} `+
-      `C${cx-HR*0.44},${cy+ry*0.12} ${cx-HR*0.76},${cy+ry*0.02} ${cx-HR*1.02},${cy+ry*0.22} Z`;
+      `M${cx-HR*1.02},${cy+ry*0.16} `+
+      `C${cx-HR*1.06},${TOP} ${cx+HR*1.06},${TOP} ${cx+HR*1.02},${cy+ry*0.16} `+
+      `C${cx+HR*0.96},${cy-ry*0.32} ${cx+HR*0.55},${cy-ry*0.58} ${cx},${cy-ry*0.60} `+
+      `C${cx-HR*0.55},${cy-ry*0.58} ${cx-HR*0.96},${cy-ry*0.32} ${cx-HR*1.02},${cy+ry*0.16} Z`;
+
+    /* 前髪：太さの違う束を重ねる */
+    const fr = [
+      [-0.94, -0.14, -0.30, 10.5], [-0.54, 0.12, -0.44, 11.5],
+      [-0.08,  0.24, -0.46, 11.0], [ 0.40, 0.16, -0.40, 10.5], [ 0.86, -0.12, -0.26, 10.0]
+    ];
+    for (const [x0, xe, ye, w] of fr){
+      front += this._qtube(
+        { x: cx + HR*x0*0.95,      y: cy - ry*0.96 },
+        { x: cx + HR*(x0+xe)*0.85, y: cy - ry*0.60 },
+        { x: cx + HR*(x0+xe*1.4),  y: cy + ry*ye  },
+        w, w*0.55, 6);
+    }
+    // 顔まわりに落ちる後れ毛
+    for (const sd of [-1,1]){
+      front += this._qtube(
+        { x: cx + sd*HR*0.86, y: cy - ry*0.66 },
+        { x: cx + sd*HR*1.10, y: cy + ry*0.30 },
+        { x: cx + sd*HR*0.94, y: cy + ry*1.55 },
+        7.5, 3.0, 7);
+    }
 
     switch (style){
       case 'longwave':
-        back = `M${cx-HR*1.06},${cy-ry*0.1} `+
-               `C${cx-HR*1.85},${cy+ry*3.6} ${cx-HR*1.30},${cy+ry*7.4+sway} ${cx-HR*0.62},${cy+ry*8.1} `+
-               `Q${cx},${cy+ry*7.4} ${cx+HR*0.62},${cy+ry*8.1} `+
-               `C${cx+HR*1.30},${cy+ry*7.4-sway} ${cx+HR*1.85},${cy+ry*3.6} ${cx+HR*1.06},${cy-ry*0.1} `+
-               `C${cx+HR*1.06},${HT} ${cx-HR*1.06},${HT} ${cx-HR*1.06},${cy-ry*0.1} Z`;
+        back = this._qtube({x:cx-HR*1.00,y:cy-ry*0.30},{x:cx-HR*1.75,y:cy+ry*3.4},{x:cx-HR*0.72,y:cy+ry*7.6+sway}, HR*0.95, HR*0.70, 8)
+             + this._qtube({x:cx+HR*1.00,y:cy-ry*0.30},{x:cx+HR*1.75,y:cy+ry*3.4},{x:cx+HR*0.72,y:cy+ry*7.6-sway}, HR*0.95, HR*0.70, 8)
+             + this._qtube({x:cx-HR*0.50,y:cy-ry*0.40},{x:cx,y:cy+ry*3.5},{x:cx+HR*0.50,y:cy+ry*7.2}, HR*1.40, HR*1.10, 8);
         break;
       case 'straight':
-        back = `M${cx-HR*1.04},${cy-ry*0.1} `+
-               `C${cx-HR*1.35},${cy+ry*3.5} ${cx-HR*1.30},${cy+ry*6.0} ${cx-HR*1.16},${cy+ry*7.6} `+
-               `L${cx-HR*0.60},${cy+ry*7.8} Q${cx},${cy+ry*7.2} ${cx+HR*0.60},${cy+ry*7.8} `+
-               `L${cx+HR*1.16},${cy+ry*7.6} C${cx+HR*1.30},${cy+ry*6.0} ${cx+HR*1.35},${cy+ry*3.5} ${cx+HR*1.04},${cy-ry*0.1} `+
-               `C${cx+HR*1.04},${HT} ${cx-HR*1.04},${HT} ${cx-HR*1.04},${cy-ry*0.1} Z`;
+        back = this._qtube({x:cx-HR*1.02,y:cy-ry*0.30},{x:cx-HR*1.20,y:cy+ry*3.6},{x:cx-HR*1.00,y:cy+ry*7.4}, HR*0.90, HR*0.72, 8)
+             + this._qtube({x:cx+HR*1.02,y:cy-ry*0.30},{x:cx+HR*1.20,y:cy+ry*3.6},{x:cx+HR*1.00,y:cy+ry*7.4}, HR*0.90, HR*0.72, 8)
+             + this._qtube({x:cx-HR*0.40,y:cy-ry*0.40},{x:cx,y:cy+ry*3.6},{x:cx+HR*0.40,y:cy+ry*7.2}, HR*1.50, HR*1.30, 8);
         break;
       case 'ponytail':
-        back = `M${cx-HR*1.02},${cy-ry*0.05} `+
-               `C${cx-HR*1.10},${cy+ry*1.5} ${cx+HR*1.10},${cy+ry*1.5} ${cx+HR*1.02},${cy-ry*0.05} `+
-               `C${cx+HR*1.02},${HT} ${cx-HR*1.02},${HT} ${cx-HR*1.02},${cy-ry*0.05} Z `+
-               `M${cx+HR*0.80},${cy-ry*0.62} `+
-               `C${cx+HR*2.45},${cy-ry*0.3+sway} ${cx+HR*2.70},${cy+ry*3.0+sway*1.5} ${cx+HR*1.55},${cy+ry*4.6+sway*2} `+
-               `C${cx+HR*2.05},${cy+ry*2.5} ${cx+HR*1.65},${cy+ry*0.2} ${cx+HR*0.62},${cy-ry*0.15} Z`;
+        back = this._qtube({x:cx-HR*0.55,y:cy-ry*0.3},{x:cx,y:cy+ry*0.9},{x:cx+HR*0.55,y:cy-ry*0.3}, HR*1.10, HR*1.10, 6);
+        side = this._qtube(
+          { x: cx+HR*0.78, y: cy-ry*0.52 },
+          { x: cx+HR*2.55, y: cy+ry*1.4+sway },
+          { x: cx+HR*1.35, y: cy+ry*4.6+sway*1.6 },
+          HR*0.62, HR*0.30, 8);
         break;
       case 'braids':
-        back = `M${cx-HR*1.02},${cy-ry*0.05} `+
-               `C${cx-HR*1.12},${cy+ry*1.7} ${cx+HR*1.12},${cy+ry*1.7} ${cx+HR*1.02},${cy-ry*0.05} `+
-               `C${cx+HR*1.02},${HT} ${cx-HR*1.02},${HT} ${cx-HR*1.02},${cy-ry*0.05} Z`;
+        back = this._qtube({x:cx-HR*0.60,y:cy-ry*0.3},{x:cx,y:cy+ry*1.0},{x:cx+HR*0.60,y:cy-ry*0.3}, HR*1.10, HR*1.10, 6);
         {
-          const outX = Math.max(HR*1.00, (this._bodyHalf||34)*0.80);
-          for (let sd=-1; sd<=1; sd+=2){
+          const outX = Math.max(HR*0.94, (this._bodyHalf||34)*0.92);
+          for (const sd of [-1,1]){
             const bp = [];
-            for (let i=0;i<7;i++){
-              const t = i/6;
+            for (let i=0;i<8;i++){
+              const t = i/7;
               bp.push({
-                x: cx + sd*(lerp(HR*0.92, outX, t) + Math.sin(t*5.2 + this.t*1.1)*1.4),
-                y: cy + ry*0.60 + t*ry*3.05,
-                w: HR*0.40*(1-t*0.50) * (i%2 ? 0.82 : 1.0)   // 編み目の凹凸
+                x: cx + sd*(lerp(HR*0.88, outX, t) + Math.sin(t*6+this.t*1.1)*1.2),
+                y: cy + ry*0.62 + t*ry*2.7,
+                w: HR*0.30*(1-t*0.45) * (i%2 ? 0.86 : 1.0)
               });
             }
             side += this._tube(bp);
@@ -966,30 +1078,29 @@ class CharRenderer {
         }
         break;
       case 'bob':
-        back = `M${cx-HR*1.04},${cy-ry*0.05} `+
-               `C${cx-HR*1.22},${cy+ry*1.5} ${cx-HR*1.02},${cy+ry*2.05} ${cx-HR*0.66},${cy+ry*2.15} `+
-               `Q${cx},${cy+ry*1.72} ${cx+HR*0.66},${cy+ry*2.15} `+
-               `C${cx+HR*1.02},${cy+ry*2.05} ${cx+HR*1.22},${cy+ry*1.5} ${cx+HR*1.04},${cy-ry*0.05} `+
-               `C${cx+HR*1.04},${HT} ${cx-HR*1.04},${HT} ${cx-HR*1.04},${cy-ry*0.05} Z`;
+        back = this._qtube({x:cx-HR*1.02,y:cy-ry*0.30},{x:cx-HR*1.15,y:cy+ry*1.1},{x:cx-HR*0.62,y:cy+ry*1.86}, HR*0.85, HR*0.62, 7)
+             + this._qtube({x:cx+HR*1.02,y:cy-ry*0.30},{x:cx+HR*1.15,y:cy+ry*1.1},{x:cx+HR*0.62,y:cy+ry*1.86}, HR*0.85, HR*0.62, 7)
+             + this._qtube({x:cx-HR*0.40,y:cy-ry*0.40},{x:cx,y:cy+ry*1.0},{x:cx+HR*0.40,y:cy+ry*1.7}, HR*1.50, HR*1.25, 7);
         break;
       case 'messy':
       default:
-        back = `M${cx-HR*1.06},${cy-ry*0.05} `+
-               `L${cx-HR*1.62},${cy+ry*1.5} L${cx-HR*0.98},${cy+ry*1.15} `+
-               `L${cx-HR*1.22},${cy+ry*2.4} L${cx-HR*0.42},${cy+ry*1.6} `+
-               `L${cx+HR*0.08},${cy+ry*2.5} L${cx+HR*0.62},${cy+ry*1.5} `+
-               `L${cx+HR*1.30},${cy+ry*2.3} L${cx+HR*1.02},${cy+ry*1.1} `+
-               `L${cx+HR*1.60},${cy+ry*1.4} L${cx+HR*1.06},${cy-ry*0.05} `+
-               `C${cx+HR*1.06},${HT} ${cx-HR*1.06},${HT} ${cx-HR*1.06},${cy-ry*0.05} Z`;
-        front += ` M${cx-1},${cy-ry*1.14} q${7+sway},-13 17,-5 q-10,2 -13,9 Z`;
+        back = this._qtube({x:cx-HR*0.60,y:cy-ry*0.3},{x:cx,y:cy+ry*1.1},{x:cx+HR*0.60,y:cy-ry*0.3}, HR*1.15, HR*1.15, 6);
+        for (let i=0;i<6;i++){
+          const a = -0.95 + i*0.38;
+          back += this._qtube(
+            { x: cx + HR*a*0.9, y: cy - ry*0.1 },
+            { x: cx + HR*a*1.6, y: cy + ry*0.9 },
+            { x: cx + HR*(a*1.15 + (i%2?0.3:-0.3)), y: cy + ry*(1.7+ (i%3)*0.35) },
+            HR*0.42, HR*0.14, 6);
+        }
         break;
     }
     P.hairBack.setAttribute('d', back);
     P.hairSide.setAttribute('d', side);
     P.hairFront.setAttribute('d', front);
-    P.hairHi.setAttribute('d',
-      `M${cx-rx*0.78},${cy-ry*0.62} Q${cx},${cy-ry*1.05} ${cx+rx*0.78},${cy-ry*0.62} `+
-      `Q${cx},${cy-ry*0.80} ${cx-rx*0.78},${cy-ry*0.62} Z`);
+    P.hairSpec.setAttribute('d',
+      this._qtube({x:cx-rx*0.72,y:cy-ry*0.66},{x:cx-rx*0.30,y:cy-ry*0.96},{x:cx-rx*0.02,y:cy-ry*0.80}, 3.2, 1.6, 5)+
+      this._qtube({x:cx+rx*0.16,y:cy-ry*0.82},{x:cx+rx*0.46,y:cy-ry*0.94},{x:cx+rx*0.74,y:cy-ry*0.62}, 2.6, 1.2, 5));
   }
 
   /* ---------- パーティクル ---------- */
@@ -1006,7 +1117,7 @@ class CharRenderer {
     }
     this.particles = alive.slice(-90);
     while (this.pool.length < this.particles.length){
-      const c = el('circle', { r:3, fill:'#cdf3b4' });
+      const c = el('circle', { r:3, fill:'#c3ddad' });
       this.parts.pgroup.appendChild(c); this.pool.push(c);
     }
     for (let i=0;i<this.pool.length;i++){
@@ -1016,8 +1127,8 @@ class CharRenderer {
       node.setAttribute('cx', p.x.toFixed(1));
       node.setAttribute('cy', p.y.toFixed(1));
       node.setAttribute('r', Math.max(0.5,p.r).toFixed(1));
-      node.setAttribute('fill', p.type==='gas' ? '#bfeda0' : '#ffe89a');
-      node.setAttribute('opacity', ((1-t)*(p.type==='gas'?0.42:0.9)).toFixed(2));
+      node.setAttribute('fill', p.type==='gas' ? '#c3ddad' : '#f2dfa4');
+      node.setAttribute('opacity', ((1-t)*(p.type==='gas'?0.34:0.8)).toFixed(2));
     }
   }
 }
@@ -1038,19 +1149,19 @@ PL.Sfx = {
   poke(){
     const ac = this.on && this._ac(); if (!ac) return;
     const o = ac.createOscillator(), g = ac.createGain();
-    o.type='sine'; o.frequency.setValueAtTime(660, ac.currentTime);
-    o.frequency.exponentialRampToValueAtTime(175, ac.currentTime+0.16);
-    g.gain.setValueAtTime(0.15, ac.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+0.2);
-    o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime+0.22);
+    o.type='sine'; o.frequency.setValueAtTime(620, ac.currentTime);
+    o.frequency.exponentialRampToValueAtTime(165, ac.currentTime+0.17);
+    g.gain.setValueAtTime(0.14, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+0.21);
+    o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime+0.23);
   },
   gulp(){
     const ac = this.on && this._ac(); if (!ac) return;
     for (let i=0;i<3;i++){
       const t = ac.currentTime + i*0.16;
       const o = ac.createOscillator(), g = ac.createGain();
-      o.type='sine'; o.frequency.setValueAtTime(255, t);
-      o.frequency.exponentialRampToValueAtTime(118, t+0.09);
+      o.type='sine'; o.frequency.setValueAtTime(250, t);
+      o.frequency.exponentialRampToValueAtTime(112, t+0.09);
       g.gain.setValueAtTime(0.12, t);
       g.gain.exponentialRampToValueAtTime(0.001, t+0.11);
       o.connect(g).connect(ac.destination); o.start(t); o.stop(t+0.13);
@@ -1059,9 +1170,9 @@ PL.Sfx = {
   inflate(){
     const ac = this.on && this._ac(); if (!ac) return;
     const o = ac.createOscillator(), g = ac.createGain();
-    o.type='triangle'; o.frequency.setValueAtTime(145, ac.currentTime);
-    o.frequency.linearRampToValueAtTime(330, ac.currentTime+0.4);
-    g.gain.setValueAtTime(0.045, ac.currentTime);
+    o.type='triangle'; o.frequency.setValueAtTime(140, ac.currentTime);
+    o.frequency.linearRampToValueAtTime(320, ac.currentTime+0.4);
+    g.gain.setValueAtTime(0.042, ac.currentTime);
     g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+0.45);
     o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime+0.46);
   },
@@ -1073,12 +1184,12 @@ PL.Sfx = {
     let phase = 0;
     for (let i=0;i<d.length;i++){
       const t = i/d.length;
-      const f = (56 + Math.sin(t*26)*22) * (1 - t*0.35);
+      const f = (54 + Math.sin(t*26)*22) * (1 - t*0.35);
       phase += f/ac.sampleRate;
       d[i] = ((phase%1)*2-1) * (1-t) * (0.55 + Math.random()*0.45);
     }
     const src = ac.createBufferSource(); src.buffer = buf;
-    const flt = ac.createBiquadFilter(); flt.type='lowpass'; flt.frequency.value = 600;
+    const flt = ac.createBiquadFilter(); flt.type='lowpass'; flt.frequency.value = 580;
     const g = ac.createGain(); g.gain.value = 0.10+power*0.10;
     src.connect(flt).connect(g).connect(ac.destination); src.start();
   },
@@ -1088,7 +1199,7 @@ PL.Sfx = {
       const t = ac.currentTime+i*0.07;
       const o = ac.createOscillator(), g = ac.createGain();
       o.type='sine'; o.frequency.value=f;
-      g.gain.setValueAtTime(0.08, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.18);
+      g.gain.setValueAtTime(0.075, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.18);
       o.connect(g).connect(ac.destination); o.start(t); o.stop(t+0.2);
     });
   }
