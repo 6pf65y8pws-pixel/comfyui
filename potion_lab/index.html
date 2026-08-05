@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>もちもち調合工房 — Potion Lab</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%A7%AA%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <header id="topbar">
+    <h1>🧪 もちもち調合工房</h1>
+    <div class="hud">
+      <span class="hud-item" title="日数">☀️ <b id="hudDay">1</b> 日目</span>
+      <span class="hud-item" title="行動力">⚡ <b id="hudAp">4</b>/<b id="hudApMax">4</b></span>
+      <span class="hud-item" title="発見したレシピ数">📖 <b id="hudRecipes">0</b></span>
+      <span class="hud-item" title="所持ポーション">🧴 <b id="hudPotions">0</b></span>
+    </div>
+    <div class="topbtns">
+      <button id="btnSleep" class="btn btn-primary" title="1日を終えて回復する">🌙 就寝</button>
+      <button id="btnSound" class="btn btn-ghost" title="効果音">🔊</button>
+      <button id="btnReset" class="btn btn-ghost" title="最初からやり直す">↺</button>
+    </div>
+  </header>
+
+  <main id="main">
+
+    <!-- ===== 左：キャラクターステージ ===== -->
+    <section id="stage">
+      <div id="charTabs"></div>
+
+      <div id="viewport">
+        <svg id="charSvg" viewBox="0 0 320 400" aria-label="キャラクター"></svg>
+        <div id="speech" class="speech hidden"></div>
+        <div id="popups"></div>
+      </div>
+
+      <div id="charMeta">
+        <div class="name-row">
+          <span id="charName">—</span>
+          <span id="charTitle" class="title"></span>
+        </div>
+        <p id="charProfile" class="profile"></p>
+      </div>
+
+      <div id="stats"></div>
+
+      <p class="hint">💡 お腹をクリック／ドラッグすると <b>ぷにぷに</b> できます</p>
+    </section>
+
+    <!-- ===== 右：操作パネル ===== -->
+    <section id="panel">
+      <nav id="tabs">
+        <button class="tab active" data-tab="gather">🌿 採取</button>
+        <button class="tab" data-tab="craft">⚗️ 調合</button>
+        <button class="tab" data-tab="drink">🍶 試飲</button>
+        <button class="tab" data-tab="codex">📔 記録</button>
+        <button class="tab" data-tab="quest">🏆 依頼</button>
+      </nav>
+
+      <div class="tabbody">
+
+        <!-- 採取 -->
+        <div class="tabpane active" id="tab-gather">
+          <h2>採取地</h2>
+          <p class="lead">行動力を1消費して素材を集めます。</p>
+          <div id="locList" class="cards"></div>
+          <h2>素材袋</h2>
+          <div id="invList" class="chips"></div>
+        </div>
+
+        <!-- 調合 -->
+        <div class="tabpane" id="tab-craft">
+          <h2>ベース</h2>
+          <div id="baseList" class="cards small"></div>
+
+          <h2>素材スロット <span class="sub">（最大3つ）</span></h2>
+          <div id="craftSlots" class="slots"></div>
+
+          <div id="craftPreview" class="preview"></div>
+          <button id="btnCraft" class="btn btn-primary wide">⚗️ 調合する</button>
+
+          <h2>素材を選ぶ</h2>
+          <div id="matPicker" class="chips"></div>
+        </div>
+
+        <!-- 試飲 -->
+        <div class="tabpane" id="tab-drink">
+          <h2>棚のポーション</h2>
+          <p class="lead">お客さまに飲んでもらいます（行動力1消費）。左のタブで対象を選択。</p>
+          <div id="potionShelf" class="cards"></div>
+        </div>
+
+        <!-- 記録 -->
+        <div class="tabpane" id="tab-codex">
+          <h2>観察記録</h2>
+          <div id="codexList" class="cards"></div>
+          <h2>レシピ帳</h2>
+          <div id="recipeList" class="cards small"></div>
+        </div>
+
+        <!-- 依頼 -->
+        <div class="tabpane" id="tab-quest">
+          <h2>研究目標</h2>
+          <p class="lead">達成すると新しい素材・採取地・お客さまが解放されます。</p>
+          <div id="questList" class="cards"></div>
+        </div>
+
+      </div>
+
+      <div id="logbox">
+        <h3>ログ</h3>
+        <ul id="logList"></ul>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/render.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
