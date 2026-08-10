@@ -41,7 +41,11 @@ python -m tools.babft_builder boat.glb --mode voxel --resolution 32 --solid
 2. `*.lua` の中身を全部貼り付けて Enter
 3. `workspace` にモデルが生成されます（全パーツ Anchored）
 
-スクリプト先頭の `SCALE` と `ORIGIN` を書き換えれば、生成サイズと位置を後から調整できます。
+編集モードのまま生成されるので、そのまま保存できます。スクリプト先頭の `SCALE` と `ORIGIN` を
+書き換えれば、生成サイズと位置を後から調整できます。
+
+Script に入れて実行しても構いません（ServerScriptService に Script を作って貼り付け → Run）。
+ただしテスト実行を止めると生成物も消えるので、残したいときは止める前にモデルをコピーしてください。
 
 ## ゲーム内で手で建てるとき
 
