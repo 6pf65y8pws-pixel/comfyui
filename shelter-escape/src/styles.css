@@ -83,7 +83,8 @@ button {
 
 .scene__figure {
   position: absolute;
-  height: 56%;
+  /* 身長165cm。奥の壁を基準にした部屋の縮尺に合わせてある */
+  height: 53%;
   transform: translateX(-50%);
   pointer-events: none;
 }

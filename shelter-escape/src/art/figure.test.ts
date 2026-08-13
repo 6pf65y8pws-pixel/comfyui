@@ -43,7 +43,8 @@ describe('骨格は全段階で共通', () => {
 
 describe('太り方の順序（仕様書 §3：単調増加）', () => {
   const keys = [
-    'chestHalf',
+    'bustHalf',
+    'underBustHalf',
     'waistHalf',
     'crestHalf',
     'bellyHalf',
@@ -81,10 +82,39 @@ describe('太り方の順序（仕様書 §3：単調増加）', () => {
     ]);
   });
 
-  it('段階4以降はウエスト幅が胸郭幅を追い越す', () => {
-    expect(physiqueOf(1).waistHalf).toBeLessThan(physiqueOf(1).chestHalf);
-    expect(physiqueOf(4).waistHalf).toBeGreaterThan(physiqueOf(4).chestHalf);
-    expect(physiqueOf(6).waistHalf).toBeGreaterThan(physiqueOf(6).chestHalf);
+  it('ウエストが胸部幅を追い越すのは段階5から（男性より遅い）', () => {
+    expect(physiqueOf(1).waistHalf).toBeLessThan(physiqueOf(1).bustHalf);
+    expect(physiqueOf(4).waistHalf).toBeLessThanOrEqual(physiqueOf(4).bustHalf);
+    expect(physiqueOf(5).waistHalf).toBeGreaterThan(physiqueOf(5).bustHalf);
+    expect(physiqueOf(6).waistHalf).toBeGreaterThan(physiqueOf(6).bustHalf);
+  });
+
+  it('脂肪は殿部・大腿から先につく（段階1〜4は骨盤が身体の最大幅）', () => {
+    for (const stage of [1, 2, 3, 4] as Stage[]) {
+      const p = physiqueOf(stage);
+      expect(p.hipHalf).toBeGreaterThan(p.bustHalf);
+      expect(p.hipHalf).toBeGreaterThanOrEqual(p.bellyHalf);
+    }
+    // 下垂した段階では腹が骨盤を追い越す
+    for (const stage of [5, 6] as Stage[]) {
+      const p = physiqueOf(stage);
+      expect(p.bellyHalf).toBeGreaterThan(p.hipHalf);
+    }
+  });
+
+  it('肩より骨盤が広い（女性の骨格）', () => {
+    for (const stage of [1, 2, 3] as Stage[]) {
+      expect(physiqueOf(stage).hipHalf).toBeGreaterThan(SK.acromionX);
+    }
+  });
+
+  it('胸は段階が進むほど下がる', () => {
+    for (let i = 1; i < PHYSIQUES.length; i++) {
+      const prev = PHYSIQUES[i - 1];
+      const cur = PHYSIQUES[i];
+      if (!prev || !cur) continue;
+      expect(cur.bustDrop).toBeGreaterThanOrEqual(prev.bustDrop);
+    }
   });
 
   it('末端（手首・足首・膝）は体幹よりずっと太りにくい', () => {
@@ -158,6 +188,7 @@ describe('輪郭が破綻しない', () => {
         g.parts.neck,
         g.parts.head,
         g.parts.hair,
+        g.parts.hairTail,
         g.clothes.trousers,
         ...g.clothes.boots,
         g.clothes.shirt,

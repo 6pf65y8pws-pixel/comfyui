@@ -217,6 +217,7 @@ export function Figure({
         {g.clothes.jacketSleeves.map((d, i) => (
           <path key={`jsleeve-${i}`} d={d} fill={TONE.jacket} />
         ))}
+        <path d={g.parts.hairTail} fill={TONE.hair} />
         <path d={g.parts.hair} fill={TONE.hair} />
 
         {/* 光 */}

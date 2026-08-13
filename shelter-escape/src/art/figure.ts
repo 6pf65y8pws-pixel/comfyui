@@ -10,24 +10,24 @@ import { physiqueOf, type Physique } from './physique';
 export const SK = {
   height: 750,
   chinY: 100,
-  craniumHalf: 34, // 頭幅/頭高 = 15.5cm/23cm。太っても変わらない
+  craniumHalf: 32, // 頭幅/頭高 = 14.1cm/22cm。太っても変わらない
   neckTopY: 86,
   neckBaseY: 150,
-  acromionX: 74, // 肩峰。両肩の骨格幅 148 ≒ 肩幅39cm
+  acromionX: 66, // 肩峰。女性の肩峰幅 36cm に対応
   acromionY: 168,
-  shoulderJointX: 60, // 上腕の回転中心。三角筋の外縁が肩幅を決める
+  shoulderJointX: 56, // 上腕の回転中心。三角筋の外縁が肩幅を決める
   shoulderJointY: 192,
-  nippleY: 222,
+  nippleY: 228, // 乳頭高（女性）
   armpitY: 236,
   ribY: 300,
-  waistY: 322,
+  waistY: 316, // 女性のウエストは男性よりやや高い
   crestY: 352,
   crotchY: 378,
   trochY: 392,
   elbowY: 328,
   wristY: 394,
   fingerY: 468,
-  hipJointX: 40,
+  hipJointX: 42, // 骨盤が広いぶん股関節の間隔も広い
   hipJointY: 350,
   kneeY: 552,
   calfY: 610,
@@ -59,6 +59,7 @@ export interface FigureGeometry {
     neck: string;
     head: string;
     hair: string;
+    hairTail: string;
     arms: string[];
     hands: string[];
   };
@@ -116,14 +117,17 @@ function halfAt(profile: Profile, y: number): number {
  */
 function torsoProfile(p: Physique): Profile {
   const shoulderY = SK.acromionY + 18 - p.neckSink * 0.5;
+  // 胸は下垂するほど最大幅の位置が下がる
+  const bustY = SK.nippleY + p.bustDrop * 20;
   const prof: Profile = [
     { y: SK.neckBaseY - 26 - p.neckSink, half: p.neckHalf * 0.95 },
-    { y: SK.neckBaseY - 6 - p.neckSink * 0.7, half: SK.acromionX * 0.52 + p.trapBulk * 0.8 },
+    { y: SK.neckBaseY - 6 - p.neckSink * 0.7, half: SK.acromionX * 0.5 + p.trapBulk * 0.8 },
     // 僧帽筋の稜線。ここを丸めないと肩パッドを入れたように見える
-    { y: SK.acromionY - 2 - p.neckSink * 0.5, half: SK.acromionX * 0.86 + p.trapBulk },
+    { y: SK.acromionY - 2 - p.neckSink * 0.5, half: SK.acromionX * 0.85 + p.trapBulk },
     { y: shoulderY, half: SK.acromionX + p.trapBulk },
-    { y: SK.armpitY, half: p.chestHalf },
-    { y: SK.armpitY + 42, half: p.chestHalf * (1 + p.chestSag * 0.06) },
+    { y: SK.armpitY - 14, half: p.bustHalf * 0.93 },
+    { y: bustY, half: p.bustHalf }, // 胸の最大幅
+    { y: bustY + 36, half: p.underBustHalf }, // 胸の下でいったん絞れる
     { y: SK.ribY, half: p.ribHalf },
     { y: SK.waistY, half: p.waistHalf },
     { y: SK.crestY, half: p.crestHalf },
@@ -181,38 +185,58 @@ function torsoLoop(profile: Profile): Pt[] {
 function headLoop(p: Physique): Pt[] {
   const c = p.cheek;
   const right: Pt[] = [
-    [14, 1],
-    [26, 8],
-    [33, 24],
+    [13, 1],
+    [24, 8],
+    [31, 24],
     [SK.craniumHalf, 44], // 頭蓋の幅は太っても変わらない
-    [32.5, 60],
-    [26 + c * 4, 78],
-    [19 + c * 5 + p.jowl * 10, 91], // 下顎角（bigonial 幅 ≒ 10.5cm）
-    [9.5 + p.jowl * 10, SK.chinY + p.jowl * 3],
+    [30.5, 60],
+    [23 + c * 4, 78],
+    [15 + c * 4 + p.jowl * 9, 91], // 下顎角（女性は幅が狭く角も丸い）
+    [8 + p.jowl * 9, SK.chinY + p.jowl * 3],
   ];
   return mirrorLoop(right, 0, SK.chinY + 2 + p.jowl * 5);
 }
 
+/** 後ろで束ねた長髪。頭蓋より一回り大きく、耳の後ろまで覆う */
 function hairLoop(): Pt[] {
-  // 短髪。頭蓋の輪郭に沿わせ、こめかみで生え際を後退させる
   const right: Pt[] = [
-    [14, -2],
-    [26.5, 6],
-    [33.5, 23],
-    [35, 44],
-    [32, 62], // もみあげ
+    [15, -4],
+    [28, 4],
+    [35, 22],
+    [36.5, 46],
+    [33, 70], // 耳の後ろまで下りる
+    [28, 84],
   ];
   return [
-    [0, -3],
+    [0, -5],
     ...right,
-    [27, 40], // 生え際：こめかみ側は下がる
-    [22, 27],
-    [11, 21],
-    [0, 20],
-    [-11, 21],
-    [-22, 27],
-    [-27, 40],
+    [24, 46], // 生え際：中央で下がり、こめかみで上がる
+    [18, 28],
+    [9, 22],
+    [0, 21],
+    [-9, 22],
+    [-18, 28],
+    [-24, 46],
     ...right.map(([x, y]) => [-x, y] as Pt).reverse(),
+  ];
+}
+
+/**
+ * 束ねた毛先。頬の外側から肩へ落ちる。
+ * 上端は髪の本体に隠れるので、顔にはかからない（本体を後から描く）。
+ */
+function hairTailLoop(): Pt[] {
+  return [
+    [30, 92], // 顎の外側、耳の下から始める（顔にはかからない）
+    [42, 118],
+    [50, 158],
+    [52, 200],
+    [48, 232], // 毛先
+    [38, 236],
+    [36, 196],
+    [33, 154],
+    [29, 120],
+    [26, 96],
   ];
 }
 
@@ -562,7 +586,7 @@ function occlusionRaw(p: Physique, profile: Profile): RawShade[] {
   });
 
   // 鎖骨の窪み（痩せている段階ほどはっきり出る）
-  if (p.chestSag < 0.3) {
+  if (p.bustDrop < 0.4) {
     out.push({
       pts: [
         [-p.neckHalf * 1.5, SK.neckBaseY + 6],
@@ -571,27 +595,37 @@ function occlusionRaw(p: Physique, profile: Profile): RawShade[] {
         [0, SK.neckBaseY + 2],
       ],
       blur: 4,
-      opacity: 0.34 - p.chestSag * 0.5,
+      opacity: 0.3 - p.bustDrop * 0.4,
     });
   }
 
-  // 胸の下
-  if (p.chestSag > 0.12) {
-    for (const side of [1, -1]) {
-      const cx = side * p.chestHalf * 0.5;
-      const y = SK.nippleY + 32 + p.chestSag * 18;
-      out.push({
-        pts: [
-          [cx - 36, y - 8],
-          [cx, y + 6 + p.chestSag * 12],
-          [cx + 36, y - 8],
-          [cx, y - 6],
-        ],
-        blur: 7,
-        opacity: 0.18 + p.chestSag * 0.3,
-      });
-    }
+  // 乳房の下縁の陰。下垂するほど低く、深くなる
+  for (const side of [1, -1]) {
+    const cx = side * p.bustHalf * 0.46;
+    const y = SK.nippleY + 26 + p.bustDrop * 34;
+    const w = p.bustHalf * 0.42;
+    out.push({
+      pts: [
+        [cx - w, y - 10],
+        [cx, y + 6 + p.bustDrop * 14],
+        [cx + w, y - 10],
+        [cx, y - 8],
+      ],
+      blur: 5,
+      opacity: 0.28 + p.bustDrop * 0.3,
+    });
   }
+  // 胸の谷
+  out.push({
+    pts: [
+      [-7, SK.nippleY - 14],
+      [0, SK.nippleY + 18 + p.bustDrop * 16],
+      [7, SK.nippleY - 14],
+      [0, SK.nippleY - 18],
+    ],
+    blur: 5,
+    opacity: 0.16 + p.bustDrop * 0.18,
+  });
 
   // 脇腹のロール（体側から内側へ流れる浅い段差）
   if (p.flankRoll > 0.1) {
@@ -674,11 +708,11 @@ function highlightLobes(p: Physique): Lobe[] {
     });
   }
   lobes.push({
-    cx: -p.chestHalf * 0.42,
-    cy: SK.nippleY - 6,
-    rx: p.chestHalf * 0.5,
-    ry: 38 + p.chestSag * 20,
-    opacity: 0.16 + p.chestSag * 0.12,
+    cx: -p.bustHalf * 0.46,
+    cy: SK.nippleY - 4 + p.bustDrop * 16,
+    rx: p.bustHalf * 0.44,
+    ry: 30 + p.bustDrop * 14,
+    opacity: 0.2 + p.bustDrop * 0.1,
   });
   lobes.push({
     cx: -(SK.acromionX * 0.8 + p.trapBulk),
@@ -735,6 +769,7 @@ export function buildFigure(stage: Stage): FigureGeometry {
       neck: closedSpline(up(neckLoop(p)), 0.8),
       head: closedSpline(up(headLoop(p)), 0.9),
       hair: closedSpline(up(hairLoop()), 0.7),
+      hairTail: closedSpline(up(hairTailLoop()), 0.85),
       arms,
       hands,
     },
