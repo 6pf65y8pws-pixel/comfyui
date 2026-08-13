@@ -108,7 +108,12 @@ export function Figure({
           <stop offset="1" stopColor={lightColor} stopOpacity="0" />
         </radialGradient>
         <radialGradient id={id('contact')}>
-          <stop offset="0" stopColor="#000000" stopOpacity="0.72" />
+          <stop offset="0" stopColor="#000000" stopOpacity="0.78" />
+          <stop offset="1" stopColor="#000000" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id={id('cast')}>
+          <stop offset="0" stopColor="#000000" stopOpacity="0.5" />
+          <stop offset="0.55" stopColor="#000000" stopOpacity="0.22" />
           <stop offset="1" stopColor="#000000" stopOpacity="0" />
         </radialGradient>
 
@@ -150,13 +155,25 @@ export function Figure({
       </defs>
 
       {contactShadow && (
-        <ellipse
-          cx={g.contact.cx}
-          cy={g.contact.cy}
-          rx={g.contact.rx}
-          ry={g.contact.ry}
-          fill={url('contact')}
-        />
+        <g>
+          {/* 光と反対側へ伸びる落ち影 */}
+          <ellipse
+            cx={g.contact.cx}
+            cy={g.contact.cy}
+            rx={g.contact.rx * 1.35}
+            ry={g.contact.ry * 1.15}
+            fill={url('cast')}
+            transform={`translate(${(lit ? 1 : -1) * g.contact.rx * 0.75} 0) skewX(${lit ? -16 : 16})`}
+          />
+          {/* 接地点の暗さ */}
+          <ellipse
+            cx={g.contact.cx}
+            cy={g.contact.cy}
+            rx={g.contact.rx * 0.78}
+            ry={g.contact.ry * 0.7}
+            fill={url('contact')}
+          />
+        </g>
       )}
 
       {/* 素体 */}
