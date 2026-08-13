@@ -17,13 +17,13 @@ export interface FigureProps {
 
 const TONE = {
   skin: '#6B5340',
-  jacket: '#2E2A24',
+  jacket: '#221E19',
   shirt: '#413A31',
-  trousers: '#38332C',
+  trousers: '#3E382F',
   boots: '#1D1B18',
   belt: '#241F1A',
-  collar: '#2A2620',
-  hair: '#241F1A',
+  collar: '#221E19',
+  hair: '#3B322A',
   base: '#2A2521',
 };
 
@@ -51,7 +51,12 @@ export function Figure({
     [g],
   );
 
-  const parts = (fill: string, keyPrefix: string) => (
+  /**
+   * 身体のかたち。withHair のときは髪も含める。
+   * クリップと輪郭光には髪を含めないと、髪が頭の輪郭から外へ出られず
+   * 水泳帽をかぶったように見える。素肌の塗りにだけ髪を含めない。
+   */
+  const parts = (fill: string, keyPrefix: string, withHair = true) => (
     <>
       {g.parts.legs.map((d, i) => (
         <path key={`${keyPrefix}leg${i}`} d={d} fill={fill} />
@@ -61,6 +66,8 @@ export function Figure({
       ))}
       <path key={`${keyPrefix}torso`} d={g.parts.torso} fill={fill} />
       <path key={`${keyPrefix}neck`} d={g.parts.neck} fill={fill} />
+      {withHair && <path key={`${keyPrefix}tail`} d={g.parts.hairTail} fill={fill} />}
+      {withHair && <path key={`${keyPrefix}hair`} d={g.parts.hair} fill={fill} />}
       <path key={`${keyPrefix}head`} d={g.parts.head} fill={fill} />
       {g.parts.arms.map((d, i) => (
         <path key={`${keyPrefix}arm${i}`} d={d} fill={fill} />
@@ -181,15 +188,15 @@ export function Figure({
 
       {/* 着衣・陰影はすべて身体の和集合でクリップする */}
       <g clipPath={url('body')}>
-        {/* 素肌 */}
-        {parts(TONE.skin, 'skin')}
-        {/* 着衣：下から順に重ねる */}
+        {/* 素肌（髪は含めない） */}
+        {parts(TONE.skin, 'skin', false)}
+        {/* 着衣：シャツは裾をズボンに入れるので先に描く */}
+        <path d={g.clothes.shirt} fill={TONE.shirt} />
         <path d={g.clothes.trousers} fill={TONE.trousers} />
         {g.clothes.boots.map((d, i) => (
           <path key={`boot-${i}`} d={d} fill={TONE.boots} />
         ))}
         {g.clothes.belt !== '' && <path d={g.clothes.belt} fill={TONE.belt} />}
-        <path d={g.clothes.shirt} fill={TONE.shirt} />
         {g.clothes.jacket.map((d, i) => (
           <path key={`jacket-${i}`} d={d} fill={TONE.jacket} />
         ))}

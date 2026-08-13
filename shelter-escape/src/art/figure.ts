@@ -197,46 +197,55 @@ function headLoop(p: Physique): Pt[] {
   return mirrorLoop(right, 0, SK.chinY + 2 + p.jowl * 5);
 }
 
-/** 後ろで束ねた長髪。頭蓋より一回り大きく、耳の後ろまで覆う */
+/**
+ * 長髪。頭蓋より一回り大きく包み、両側とも顎より下まで落とす。
+ * ゲーム画面の大きさでは陰影より輪郭が先に読まれるので、
+ * 髪の量と長さがそのまま人物の印象を決める。
+ */
 function hairLoop(): Pt[] {
   const right: Pt[] = [
-    [15, -4],
-    [28, 4],
-    [35, 22],
-    [36.5, 46],
-    [33, 70], // 耳の後ろまで下りる
-    [28, 84],
+    [16, -5],
+    [31, 3],
+    [40, 22],
+    [44, 54],
+    [45, 92],
+    [43, 128], // 顎より下、肩に届く長さ
+    [34, 152],
   ];
   return [
-    [0, -5],
+    [0, -6],
     ...right,
-    [24, 46], // 生え際：中央で下がり、こめかみで上がる
-    [18, 28],
+    [25, 138], // 内側の縁：頬に沿って上がる
+    [28, 74],
+    [26, 48],
+    [19, 28],
     [9, 22],
     [0, 21],
     [-9, 22],
-    [-18, 28],
-    [-24, 46],
+    [-19, 28],
+    [-26, 48],
+    [-28, 74],
+    [-25, 138],
     ...right.map(([x, y]) => [-x, y] as Pt).reverse(),
   ];
 }
 
 /**
- * 束ねた毛先。頬の外側から肩へ落ちる。
- * 上端は髪の本体に隠れるので、顔にはかからない（本体を後から描く）。
+ * 肩へ流れる毛束。片側だけ前に落ちる。
+ * 上端は髪の本体に隠れるので顔にはかからない（本体を後から描く）。
  */
 function hairTailLoop(): Pt[] {
   return [
-    [30, 92], // 顎の外側、耳の下から始める（顔にはかからない）
-    [42, 118],
-    [50, 158],
-    [52, 200],
-    [48, 232], // 毛先
-    [38, 236],
-    [36, 196],
-    [33, 154],
-    [29, 120],
-    [26, 96],
+    [24, 118], // 髪の本体の内側から続ける
+    [40, 156],
+    [49, 202],
+    [50, 250],
+    [43, 286], // 毛先
+    [30, 288],
+    [31, 240],
+    [28, 192],
+    [22, 152],
+    [17, 120],
   ];
 }
 
@@ -257,10 +266,10 @@ function armChain(p: Physique, side: number, profile: Profile): { spine: Pt[]; r
   const ys = [SK.shoulderJointY, 262, SK.elbowY, 356, SK.wristY];
   const baseX = [
     SK.shoulderJointX + p.armAbduct * 0.2,
-    SK.shoulderJointX + 2 + p.armAbduct * 0.45,
-    SK.shoulderJointX + 4 + p.armAbduct * 0.8,
-    SK.shoulderJointX + 6 + p.armAbduct * 0.95,
-    SK.shoulderJointX + 7 + p.armAbduct,
+    SK.shoulderJointX + 1 + p.armAbduct * 0.45,
+    SK.shoulderJointX + 2 + p.armAbduct * 0.8,
+    SK.shoulderJointX + 3 + p.armAbduct * 0.95,
+    SK.shoulderJointX + 3 + p.armAbduct,
   ];
   // 腕の外縁が必ず体幹輪郭の外に出るまで押し出す。
   // 太った段階で「腹が腕を飲み込む」破綻が起きないようにするための保険。
@@ -358,7 +367,7 @@ function sleevePath(
   up: (pts: readonly Pt[]) => Pt[],
 ): string {
   const { spine, radii } = armChain(p, side, profile);
-  const pad = 4.5;
+  const pad = 3;
   // 長袖は手首の少し手前、半袖は上腕の中ほどで切る
   const count = long ? 4 : 3;
   const cut = spine.slice(0, count);
@@ -422,17 +431,20 @@ function shirtLoop(p: Physique, profile: Profile): Pt[] {
 /** 上着の前身頃。段階が進むと前が閉じられなくなる */
 function jacketLoops(p: Physique, profile: Profile): Pt[][] {
   const top = SK.neckBaseY - 10 - p.neckSink;
-  const hem = Math.min(p.bellyBottomY - 8, 452);
+  // 丈は腰骨まで。長い上着は腰から下を隠してしまう
+  const hem = Math.min(p.bellyBottomY - 8, SK.crestY + 14);
   const panel = (side: number): Pt[] => {
     const outer: Pt[] = [];
     const inner: Pt[] = [];
-    for (let y = top; y <= hem; y += 16) {
-      const half = halfAt(profile, y) * 1.03;
+    for (let y = top; y <= hem; y += 14) {
+      // ウエストの高さでは布が体に沿う（絞る）
+      const cinch = 1 - 0.05 * Math.max(0, 1 - Math.abs(y - SK.waistY) / 60);
+      const half = halfAt(profile, y) * 1.02 * cinch;
       outer.push([side * half, y]);
       const gap = p.jacketGap * (y > SK.armpitY ? 1 : 0.4);
       inner.push([side * Math.min(gap, half * 0.92), y]);
     }
-    const lastHalf = halfAt(profile, hem) * 1.03;
+    const lastHalf = halfAt(profile, hem) * 1.07; // 裾は少し開く
     outer.push([side * lastHalf, hem]);
     inner.push([side * Math.min(p.jacketGap, lastHalf * 0.92), hem]);
     return [...outer, ...inner.reverse()];
