@@ -6,9 +6,9 @@ import type { GameState, Room } from '../game/types';
 
 /** 部屋ごとの光源。人物の陰影も部屋の光に合わせる（仕様書 §8：光源はひとつ） */
 const LIGHT: Record<string, { from: 'left' | 'right'; color: string; x: number; bottom: number }> = {
-  mess_hall: { from: 'left', color: '#A89880', x: 68, bottom: 6 },
-  storage: { from: 'left', color: '#A89880', x: 27, bottom: 4 },
-  power_room: { from: 'right', color: '#B08268', x: 25, bottom: 3 },
+  mess_hall: { from: 'left', color: '#A89880', x: 72, bottom: 20 },
+  storage: { from: 'left', color: '#A89880', x: 41, bottom: 19 },
+  power_room: { from: 'right', color: '#B08268', x: 25, bottom: 21 },
 };
 
 interface Props {

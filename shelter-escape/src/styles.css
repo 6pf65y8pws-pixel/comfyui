@@ -83,7 +83,7 @@ button {
 
 .scene__figure {
   position: absolute;
-  height: 58%;
+  height: 56%;
   transform: translateX(-50%);
   pointer-events: none;
 }

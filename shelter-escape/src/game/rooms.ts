@@ -25,7 +25,7 @@ export const ROOMS: readonly Room[] = [
         label: '通風ダクト',
         requires: 'duct',
         endingId: 'ending_duct',
-        area: { x: 73, y: 12.5, w: 16, h: 18.5 },
+        area: { x: 19.6, y: 19.5, w: 15.5, h: 19 },
         failText:
           '格子を外し、肩から入れてみる。胸のあたりでつかえた。息を吐いても、もう幅が足りない。',
       },
@@ -33,7 +33,7 @@ export const ROOMS: readonly Room[] = [
         id: 'mess_to_storage',
         label: '保管庫へ続く扉',
         targetRoomId: 'storage',
-        area: { x: 42.8, y: 26.5, w: 14, h: 45 },
+        area: { x: 42.8, y: 26.5, w: 13.2, h: 43 },
       },
     ],
   },
@@ -49,7 +49,7 @@ export const ROOMS: readonly Room[] = [
         label: '鋼製の棚',
         requires: 'push',
         hiddenAfterSolved: true,
-        area: { x: 39.2, y: 19, w: 21.5, h: 55.5 },
+        area: { x: 49, y: 20.5, w: 19, h: 48.5 },
         failText:
           '肩を当てて押す。棚は軋んだだけで、位置を変えなかった。足りないのは力ではなく、重さだ。',
         resolveText:
@@ -60,13 +60,13 @@ export const ROOMS: readonly Room[] = [
         label: '棚の脇の通路',
         targetRoomId: 'power_room',
         hiddenUntilSolved: 'storage_shelf',
-        area: { x: 38.5, y: 25.5, w: 15.5, h: 48.5 },
+        area: { x: 48.6, y: 25, w: 13.8, h: 44.5 },
       },
       {
         id: 'storage_to_mess',
         label: '食堂へ戻る扉',
         targetRoomId: 'mess_hall',
-        area: { x: 3.5, y: 29, w: 12.5, h: 44 },
+        area: { x: 20.5, y: 26.5, w: 12, h: 43 },
       },
     ],
   },
@@ -81,7 +81,7 @@ export const ROOMS: readonly Room[] = [
         id: 'power_plate',
         label: '圧力プレート',
         requires: 'plate',
-        area: { x: 33.5, y: 79.5, w: 23.5, h: 14.5 },
+        area: { x: 32.5, y: 77, w: 25.5, h: 15.5 },
         failText:
           'プレートに乗る。針は震えたが、規定値の手前で止まった。脇の銘板に「95kg」とある。',
         resolveText: 'プレートが沈み、奥で空気の抜ける音がした。隔壁がゆっくりと持ち上がる。',
@@ -92,14 +92,14 @@ export const ROOMS: readonly Room[] = [
         requires: 'climb',
         endingId: 'ending_stairs',
         hiddenUntilSolved: 'power_plate',
-        area: { x: 62.5, y: 22, w: 21.5, h: 51 },
+        area: { x: 59.5, y: 25.5, w: 18, h: 44 },
         failText: '踏み板の幅を見る。手すりを掴んでも、この体を上まで運べる気がしない。',
       },
       {
         id: 'power_to_storage',
         label: '保管庫へ戻る通路',
         targetRoomId: 'storage',
-        area: { x: 2.2, y: 31.5, w: 11.2, h: 42.5 },
+        area: { x: 10.8, y: 26, w: 8.5, h: 49 },
       },
     ],
   },
@@ -112,7 +112,7 @@ export const FOODS: readonly FoodItem[] = [
     label: '缶詰の山',
     stageGain: 1,
     consumed: false,
-    area: { x: 6.5, y: 32.5, w: 15, h: 21 },
+    area: { x: 9.5, y: 40, w: 17, h: 18.5 },
     confirmText:
       '中身は脂と塩の塊だ。腹に入れれば体は作られ、その体はもう元には戻らない。' +
       '今できることのいくつかは、できなくなる。',
@@ -124,7 +124,7 @@ export const FOODS: readonly FoodItem[] = [
     label: '軍用レーション',
     stageGain: 1,
     consumed: false,
-    area: { x: 73, y: 49, w: 19, h: 25.5 },
+    area: { x: 71, y: 63.5, w: 22.5, h: 29 },
     confirmText:
       '一食分が四千キロカロリー。設計通りに体は増える。増えた分は、二度と減らない。' +
       '今できることのいくつかは、できなくなる。',

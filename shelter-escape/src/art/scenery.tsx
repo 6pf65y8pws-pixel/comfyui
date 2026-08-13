@@ -227,36 +227,125 @@ export function Placard({
   );
 }
 
-/** コンクリート壁＋床。部屋ごとに色温度だけ変える */
+/**
+ * 部屋の箱。一点透視で、天井・左右の壁・床・奥の壁を描く。
+ * 消失点は VP、奥の壁は BACK の矩形。壁に置く物は BACK の内側に置く。
+ */
+export const VP = { x: 800, y: 420 };
+export const BACK = { x0: 300, x1: 1300, y0: 104, y1: 620 };
+
+const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+
+/** 床の左右端（手前ほど外へ開く） */
+export function floorEdgeX(y: number, side: -1 | 1): number {
+  const t = (y - BACK.y1) / (H - BACK.y1);
+  return side === -1 ? lerp(BACK.x0, 0, t) : lerp(BACK.x1, W, t);
+}
+
+/** 奥の壁を基準にした、その奥行きでの大きさの比 */
+export function depthScale(y: number): number {
+  return (y - VP.y) / (BACK.y1 - VP.y);
+}
+
 export function Room({
-  horizon = 640,
   children,
+  sideTone = '#2A2621',
+  ceilTone = '#1E1B17',
 }: {
-  horizon?: number;
   children?: ReactNode;
+  sideTone?: string;
+  ceilTone?: string;
 }) {
+  const joints = [0.22, 0.46, 0.72];
   return (
     <g>
-      <rect x="0" y="0" width={W} height={horizon} fill="url(#wallGrad)" />
-      <rect x="0" y={horizon} width={W} height={H - horizon} fill="url(#floorGrad)" />
-      {/* 壁の継ぎ目 */}
-      {[260, 620, 980, 1340].map((x) => (
-        <rect key={x} x={x} y="0" width="3" height={horizon} fill="#221F1B" opacity="0.55" />
+      {/* 天井 */}
+      <polygon points={`0,0 ${W},0 ${BACK.x1},${BACK.y0} ${BACK.x0},${BACK.y0}`} fill={ceilTone} />
+      {/* 左右の壁 */}
+      <polygon points={`0,0 ${BACK.x0},${BACK.y0} ${BACK.x0},${BACK.y1} 0,${H}`} fill={sideTone} />
+      <polygon points={`${W},0 ${BACK.x1},${BACK.y0} ${BACK.x1},${BACK.y1} ${W},${H}`} fill={sideTone} />
+      {/* 床 */}
+      <polygon
+        points={`${BACK.x0},${BACK.y1} ${BACK.x1},${BACK.y1} ${W},${H} 0,${H}`}
+        fill="url(#floorGrad)"
+      />
+      {/* 奥の壁 */}
+      <rect
+        x={BACK.x0}
+        y={BACK.y0}
+        width={BACK.x1 - BACK.x0}
+        height={BACK.y1 - BACK.y0}
+        fill="url(#wallGrad)"
+      />
+
+      {/* 側壁の継ぎ目（消失点へ収束する） */}
+      {joints.map((t) => (
+        <g key={`j${t}`} opacity="0.5">
+          <line
+            x1={lerp(0, BACK.x0, t)}
+            y1={lerp(0, BACK.y0, t)}
+            x2={lerp(0, BACK.x0, t)}
+            y2={lerp(H, BACK.y1, t)}
+            stroke="#191714"
+            strokeWidth="3"
+          />
+          <line
+            x1={lerp(W, BACK.x1, t)}
+            y1={lerp(0, BACK.y0, t)}
+            x2={lerp(W, BACK.x1, t)}
+            y2={lerp(H, BACK.y1, t)}
+            stroke="#191714"
+            strokeWidth="3"
+          />
+        </g>
       ))}
-      <rect x="0" y={horizon - 26} width={W} height="26" fill="#242019" opacity="0.75" />
-      <rect x="0" y={horizon} width={W} height="4" fill="#151311" />
-      {/* 床の目地 */}
-      {[0.28, 0.62, 1].map((t, i) => (
+
+      {/* 天井の梁 */}
+      {joints.map((t) => (
+        <line
+          key={`c${t}`}
+          x1={lerp(0, BACK.x0, t)}
+          y1={lerp(0, BACK.y0, t)}
+          x2={lerp(W, BACK.x1, t)}
+          y2={lerp(0, BACK.y0, t)}
+          stroke="#26221D"
+          strokeWidth={10 - t * 5}
+          opacity="0.8"
+        />
+      ))}
+
+      {/* 奥の壁の継ぎ目と幅木 */}
+      {[0.3, 0.7].map((t) => (
         <rect
-          key={i}
-          x="0"
-          y={horizon + (H - horizon) * t}
-          width={W}
-          height="2"
-          fill="#131211"
+          key={`w${t}`}
+          x={lerp(BACK.x0, BACK.x1, t)}
+          y={BACK.y0}
+          width="3"
+          height={BACK.y1 - BACK.y0}
+          fill="#231F1B"
           opacity="0.6"
         />
       ))}
+      <rect x={BACK.x0} y={BACK.y1 - 22} width={BACK.x1 - BACK.x0} height="22" fill="#241F19" opacity="0.8" />
+      <rect x={BACK.x0} y={BACK.y1 - 2} width={BACK.x1 - BACK.x0} height="4" fill="#141210" />
+
+      {/* 床の目地（手前ほど間隔が開く） */}
+      {[0.16, 0.4, 0.72].map((t) => {
+        const y = BACK.y1 + (H - BACK.y1) * t;
+        return (
+          <line
+            key={`f${t}`}
+            x1={floorEdgeX(y, -1)}
+            y1={y}
+            x2={floorEdgeX(y, 1)}
+            y2={y}
+            stroke="#121110"
+            strokeWidth={2 + t * 3}
+            opacity="0.55"
+          />
+        );
+      })}
+
       {children}
     </g>
   );
